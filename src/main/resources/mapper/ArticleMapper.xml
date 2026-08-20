@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.blog.mapper.ArticleMapper">
+
+    <!-- 根据 id 查询文章 -->
+    <select id="selectById" resultType="org.example.blog.dao.Article">
+        SELECT id, index_id, title, content, author_id, is_deleted, is_hidden, created_at, updated_at
+        FROM articles
+        WHERE id = #{id}
+    </select>
+
+    <!-- 根据 index_id 查询文章，只保留updated_at最新的一个 -->
+    <select id="selectByIndexId" resultType="org.example.blog.dao.Article">
+        SELECT id, index_id, title, content, author_id, is_deleted, is_hidden, created_at, updated_at
+        FROM articles
+        WHERE index_id = #{indexId}
+        ORDER BY updated_at DESC
+        LIMIT 1
+    </select>
+
+    <!-- 查询作者的文章列表：同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
+    <select id="selectByAuthorId" resultType="org.example.blog.dao.Article">
+        SELECT t.id, t.index_id, t.title, t.content, t.author_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
+        FROM (
+            SELECT DISTINCT ON (index_id) id, index_id, title, content, author_id, is_deleted, is_hidden, created_at, updated_at
+            FROM articles
+            WHERE author_id = #{authorId}
+            ORDER BY index_id, updated_at DESC
+        ) t
+        ORDER BY t.created_at DESC
+    </select>
+
+    <!-- 按标题模糊搜索：同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
+    <select id="selectByTitleContaining" resultType="org.example.blog.dao.Article">
+        SELECT t.id, t.index_id, t.title, t.content, t.author_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
+        FROM (
+            SELECT DISTINCT ON (index_id) id, index_id, title, content, author_id, is_deleted, is_hidden, created_at, updated_at
+            FROM articles
+            WHERE title ILIKE CONCAT('%', #{keyword}, '%')
+            ORDER BY index_id, updated_at DESC
+        ) t
+        ORDER BY t.created_at DESC
+    </select>
+
+    <!-- 插入文章：index_id 为 null（新文章）时由 SERIAL 序列自动生成，指定时（保存新版本）沿用；
+         自动查找相同 index_id 的已有记录并继承 created_at，找不到则 created_at = updated_at -->
+    <insert id="insert">
+        INSERT INTO articles (id, index_id, title, content, author_id, created_at, updated_at)
+        VALUES (
+                #{id},
+                <choose>
+                    <when test="indexId != null">#{indexId}</when>
+                    <otherwise>DEFAULT</otherwise>
+                </choose>,
+                #{title}, #{content}, #{authorId},
+                COALESCE(
+                    (SELECT a.created_at
+                    FROM articles a
+                    WHERE a.index_id = #{indexId}
+                     LIMIT 1),
+                    #{updatedAt}
+                ),
+                #{updatedAt}
+               )
+    </insert>
+
+    <!-- 设置一个文章的is_deleted为true -->
+    <update id="setDeleted">
+        UPDATE articles SET is_deleted = TRUE WHERE id = #{id}
+    </update>
+
+    <!-- 设置一个文章的is_deleted为false -->
+    <update id="setNotDeleted">
+        UPDATE articles SET is_deleted = FALSE WHERE id = #{id}
+    </update>
+
+    <!-- 设置一个文章的is_hidden为true -->
+    <update id="setHidden">
+        UPDATE articles SET is_hidden = TRUE WHERE id = #{id}
+    </update>
+
+    <!-- 设置一个文章的is_hidden为false -->
+    <update id="setNotHidden">
+        UPDATE articles SET is_hidden = FALSE WHERE id = #{id}
+    </update>
+
+</mapper>

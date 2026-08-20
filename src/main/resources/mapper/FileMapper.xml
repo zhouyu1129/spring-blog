@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.blog.mapper.FileMapper">
+
+    <!-- 基础列 -->
+    <sql id="Base_Column_List">
+        id, title, path, author_id, created_at
+    </sql>
+
+    <!-- 根据 ID 查询文件 -->
+    <select id="selectById" resultType="org.example.blog.dao.File">
+        SELECT <include refid="Base_Column_List"/>
+        FROM files
+        WHERE id = #{id}
+    </select>
+
+    <!-- 查询文章关联的文件列表 -->
+    <select id="selectByArticleId" resultType="org.example.blog.dao.File">
+        SELECT f.id, f.title, f.path, f.author_id, f.created_at
+        FROM files f
+        INNER JOIN file_quote fq ON f.id = fq.file_id
+        WHERE fq.article_id = #{articleId}
+        ORDER BY f.created_at DESC
+    </select>
+
+    <!-- 查询用户的临时文件列表（未关联任何文章） -->
+    <select id="selectTempByAuthorId" resultType="org.example.blog.dao.File">
+        SELECT f.id, f.title, f.path, f.author_id, f.created_at
+        FROM files f
+        WHERE f.author_id = #{authorId}
+          AND NOT EXISTS (SELECT 1 FROM file_quote fq WHERE fq.file_id = f.id)
+        ORDER BY f.created_at DESC
+    </select>
+
+    <!-- 插入文件 -->
+    <insert id="insert">
+        INSERT INTO files (id, title, path, author_id, created_at)
+        VALUES (#{id}, #{title}, #{path}, #{authorId}, #{createdAt})
+    </insert>
+
+    <!-- 删除文件 -->
+    <delete id="deleteById">
+        DELETE FROM files WHERE id = #{id}
+    </delete>
+
+    <!-- 建立文章与文件的关联 -->
+    <insert id="insertQuote">
+        INSERT INTO file_quote (article_id, file_id)
+        VALUES (#{articleId}, #{fileId})
+        ON CONFLICT DO NOTHING
+    </insert>
+
+    <!-- 解除文章与文件的关联 -->
+    <delete id="deleteQuote">
+        DELETE FROM file_quote WHERE article_id = #{articleId} AND file_id = #{fileId}
+    </delete>
+
+</mapper>

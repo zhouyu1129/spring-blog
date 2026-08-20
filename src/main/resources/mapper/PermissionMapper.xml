@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.blog.mapper.PermissionMapper">
+
+    <!-- 根据 ID 查询权限 -->
+    <select id="selectById" resultType="org.example.blog.dao.Permission">
+        SELECT id, perm_name AS permName, description FROM permissions WHERE id = #{id}
+    </select>
+
+    <!-- 根据权限名查询权限 -->
+    <select id="selectByPermName" resultType="org.example.blog.dao.Permission">
+        SELECT id, perm_name AS permName, description FROM permissions WHERE perm_name = #{permName}
+    </select>
+
+    <!-- 查询所有权限 -->
+    <select id="selectAll" resultType="org.example.blog.dao.Permission">
+        SELECT id, perm_name AS permName, description FROM permissions ORDER BY id
+    </select>
+
+    <!-- 插入权限 -->
+    <insert id="insert" parameterType="org.example.blog.dao.Permission" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO permissions (perm_name, description) VALUES (#{permName}, #{description})
+    </insert>
+
+    <!-- 更新权限 -->
+    <update id="update" parameterType="org.example.blog.dao.Permission">
+        UPDATE permissions
+        <set>
+            <if test="permName != null">perm_name = #{permName},</if>
+            <if test="description != null">description = #{description},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 删除权限 -->
+    <delete id="deleteById">
+        DELETE FROM permissions WHERE id = #{id}
+    </delete>
+
+</mapper>

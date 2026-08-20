@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.blog.mapper.RoleMapper">
+
+    <!-- Role 结果映射 -->
+    <resultMap id="RoleResultMap" type="org.example.blog.dao.Role">
+        <id property="id" column="id"/>
+        <result property="roleName" column="role_name"/>
+        <result property="description" column="description"/>
+        <collection property="permissions" ofType="org.example.blog.dao.Permission"
+                    select="selectPermissionsByRoleId" column="id"/>
+    </resultMap>
+
+    <!-- 根据 ID 查询角色 -->
+    <select id="selectById" resultMap="RoleResultMap">
+        SELECT id, role_name, description FROM roles WHERE id = #{id}
+    </select>
+
+    <!-- 根据角色名查询角色 -->
+    <select id="selectByRoleName" resultMap="RoleResultMap">
+        SELECT id, role_name, description FROM roles WHERE role_name = #{roleName}
+    </select>
+
+    <!-- 查询所有角色 -->
+    <select id="selectAll" resultType="org.example.blog.dao.Role">
+        SELECT id, role_name AS roleName, description FROM roles ORDER BY id
+    </select>
+
+    <!-- 插入角色 -->
+    <insert id="insert" parameterType="org.example.blog.dao.Role" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO roles (role_name, description) VALUES (#{roleName}, #{description})
+    </insert>
+
+    <!-- 更新角色 -->
+    <update id="update" parameterType="org.example.blog.dao.Role">
+        UPDATE roles
+        <set>
+            <if test="roleName != null">role_name = #{roleName},</if>
+            <if test="description != null">description = #{description},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 删除角色 -->
+    <delete id="deleteById">
+        DELETE FROM roles WHERE id = #{id}
+    </delete>
+
+    <!-- 查询角色的权限列表 -->
+    <select id="selectPermissionsByRoleId" resultType="org.example.blog.dao.Permission">
+        SELECT p.id, p.perm_name AS permName, p.description
+        FROM permissions p
+        INNER JOIN role_permissions rp ON p.id = rp.permission_id
+        WHERE rp.role_id = #{roleId}
+    </select>
+
+    <!-- 给角色分配权限 -->
+    <insert id="insertRolePermission">
+        INSERT INTO role_permissions (role_id, permission_id) VALUES (#{roleId}, #{permissionId})
+        ON CONFLICT DO NOTHING
+    </insert>
+
+    <!-- 移除角色的某个权限 -->
+    <delete id="deleteRolePermission">
+        DELETE FROM role_permissions WHERE role_id = #{roleId} AND permission_id = #{permissionId}
+    </delete>
+
+</mapper>
