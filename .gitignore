@@ -31,7 +31,8 @@ build/
 
 ### VS Code ###
 .vscode/
+
 /src/main/resources/postgres.properties
 /src/main/resources/redis.properties
 /src/main/resources/mail.properties
-/front end for django/
+/upload/

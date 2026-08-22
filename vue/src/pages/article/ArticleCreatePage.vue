@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Save, ArrowLeft, Upload, Trash2, Copy } from 'lucide-vue-next'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
@@ -26,8 +26,13 @@ function buildPreviewSource(val: string): string {
   })
 }
 
+// 预览渲染防抖：避免每次按键/点击引用都同步渲染 Markdown 导致界面卡顿
+let previewTimer: ReturnType<typeof setTimeout> | undefined
 watch(content, (val) => {
-  previewHtml.value = renderMarkdown(buildPreviewSource(val))
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = setTimeout(() => {
+    previewHtml.value = renderMarkdown(buildPreviewSource(val))
+  }, 300)
 })
 
 function insertImageRef(imageId: number) {
@@ -36,6 +41,8 @@ function insertImageRef(imageId: number) {
 }
 
 function removeImage(imageId: number) {
+  const target = uploadedImages.value.find(img => img.id === imageId)
+  if (target) URL.revokeObjectURL(target.url)
   uploadedImages.value = uploadedImages.value.filter(img => img.id !== imageId)
 }
 
@@ -44,12 +51,9 @@ function handleImageSelect(event: Event) {
   if (!input.files) return
   Array.from(input.files).forEach(file => {
     if (!file.type.startsWith('image/')) return
-    const reader = new FileReader()
     const imageId = nextImageId.value++
-    reader.onload = (e) => {
-      uploadedImages.value.push({ id: imageId, name: file.name, url: e.target?.result as string, file })
-    }
-    reader.readAsDataURL(file)
+    // 用 object URL 代替 base64 dataURL：URL 很短，预览渲染不会被兆级 base64 卡死；且同步可用
+    uploadedImages.value.push({ id: imageId, name: file.name, url: URL.createObjectURL(file), file })
   })
   input.value = ''
 }
@@ -147,6 +151,11 @@ onMounted(async () => {
       uploadedFiles.value = res.data.files || []
     }
   } catch (e) { /* ignore */ }
+})
+
+onUnmounted(() => {
+  if (previewTimer) clearTimeout(previewTimer)
+  uploadedImages.value.forEach(img => URL.revokeObjectURL(img.url))
 })
 </script>
 

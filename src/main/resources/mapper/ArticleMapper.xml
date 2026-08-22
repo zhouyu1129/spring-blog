@@ -31,6 +31,17 @@
         ORDER BY t.created_at DESC
     </select>
 
+    <!-- 查询全部文章：同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
+    <select id="selectAll" resultType="org.example.blog.dao.Article">
+        SELECT t.id, t.index_id, t.title, t.content, t.author_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
+        FROM (
+            SELECT DISTINCT ON (index_id) id, index_id, title, content, author_id, is_deleted, is_hidden, created_at, updated_at
+            FROM articles
+            ORDER BY index_id, updated_at DESC
+        ) t
+        ORDER BY t.created_at DESC
+    </select>
+
     <!-- 按标题模糊搜索：同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
     <select id="selectByTitleContaining" resultType="org.example.blog.dao.Article">
         SELECT t.id, t.index_id, t.title, t.content, t.author_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
@@ -46,7 +57,7 @@
     <!-- 插入文章：index_id 为 null（新文章）时由 SERIAL 序列自动生成，指定时（保存新版本）沿用；
          自动查找相同 index_id 的已有记录并继承 created_at，找不到则 created_at = updated_at -->
     <insert id="insert">
-        INSERT INTO articles (id, index_id, title, content, author_id, created_at, updated_at)
+        INSERT INTO articles (id, index_id, title, content, author_id, created_at, updated_at, is_hidden)
         VALUES (
                 #{id},
                 <choose>
@@ -58,10 +69,19 @@
                     (SELECT a.created_at
                     FROM articles a
                     WHERE a.index_id = #{indexId}
-                     LIMIT 1),
+                    LIMIT 1),
                     #{updatedAt}
                 ),
-                #{updatedAt}
+                #{updatedAt},
+                <choose>
+                    <when test="indexId != null">
+                        (SELECT a.is_hidden
+                        FROM articles a
+                        WHERE a.index_id = #{indexId}
+                        LIMIT 1)
+                    </when>
+                    <otherwise>DEFAULT</otherwise>
+                </choose>
                )
     </insert>
 

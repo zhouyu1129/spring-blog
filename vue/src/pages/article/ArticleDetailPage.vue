@@ -1,20 +1,21 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, MessageSquare, List, Pen, Trash2, User as UserIcon } from 'lucide-vue-next'
+import { ArrowLeft, MessageSquare, List, Pen, Trash2, User as UserIcon, EyeOff, Eye } from 'lucide-vue-next'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { articleApi } from '@/api'
-import { useAuth } from '@/composables/useAuth'
+import { useMessages } from '@/composables/useMessages'
 import { renderMarkdownWithToc, buildTocHtml } from '@/lib/markdown'
 
 const route = useRoute()
 const router = useRouter()
-const { user, isAuthenticated } = useAuth()
+const { addMessage } = useMessages()
 
 const article = ref<any>(null)
 const files = ref<any[]>([])
 const images = ref<any[]>([])
 const loading = ref(true)
+const togglingHide = ref(false)
 
 const indexId = Number(route.params.indexId)
 
@@ -34,7 +35,26 @@ function formatFileSize(bytes: number) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
-const isAuthor = () => isAuthenticated.value && user.value?.id === article.value?.author_id?.id
+// 隐藏/取消隐藏（作者或管理员，由后端返回的 can_hide 控制）
+async function handleToggleHide() {
+  if (!article.value) return
+  togglingHide.value = true
+  try {
+    const res = article.value.is_hidden
+      ? await articleApi.unhide(indexId)
+      : await articleApi.hide(indexId)
+    if (res.ok) {
+      article.value.is_hidden = !article.value.is_hidden
+      addMessage(article.value.is_hidden ? '文章已隐藏，仅作者和管理员可见' : '文章已取消隐藏', 'success')
+    } else {
+      addMessage(res.data?.message || '操作失败', 'error')
+    }
+  } catch (e) {
+    addMessage('操作失败', 'error')
+  } finally {
+    togglingHide.value = false
+  }
+}
 
 onMounted(async () => {
   try {
@@ -59,7 +79,10 @@ onMounted(async () => {
     <div class="lg:col-span-3">
       <article>
         <header class="mb-6">
-          <h1 class="text-3xl font-bold mb-3">{{ article.title }}</h1>
+          <h1 class="text-3xl font-bold mb-3">
+            {{ article.title }}
+            <span v-if="article.is_hidden" class="align-middle ml-2 text-xs font-normal bg-amber-100 text-amber-700 border border-amber-200 px-2 py-1 rounded-full">已隐藏 · 仅作者和管理员可见</span>
+          </h1>
           <p class="text-zinc-400 text-sm">
             发布于：{{ formatDate(article.created_at) }} |
             作者：{{ article.author_id?.nickname || article.author_id?.username }}
@@ -67,10 +90,15 @@ onMounted(async () => {
               | 最后更新于：{{ formatDate(article.updated_at) }}
             </template>
           </p>
-          <div v-if="isAuthor()" class="flex gap-2 mt-3">
+          <div v-if="article.can_edit" class="flex gap-2 mt-3">
             <router-link :to="{ name: 'article-edit', params: { indexId } }" class="inline-flex items-center gap-1 text-sm px-3 py-1.5 border border-amber-300 text-amber-700 rounded-md hover:bg-amber-50 transition-colors">
               <Pen :size="14" /> 编辑
             </router-link>
+            <button v-if="article.can_hide" @click="handleToggleHide" :disabled="togglingHide" class="inline-flex items-center gap-1 text-sm px-3 py-1.5 border border-zinc-300 text-zinc-600 rounded-md hover:bg-zinc-50 transition-colors disabled:opacity-50">
+              <EyeOff v-if="!article.is_hidden" :size="14" />
+              <Eye v-else :size="14" />
+              {{ togglingHide ? '处理中...' : (article.is_hidden ? '取消隐藏' : '隐藏') }}
+            </button>
             <router-link :to="{ name: 'article-delete', params: { indexId } }" class="inline-flex items-center gap-1 text-sm px-3 py-1.5 border border-red-300 text-red-700 rounded-md hover:bg-red-50 transition-colors">
               <Trash2 :size="14" /> 删除
             </router-link>

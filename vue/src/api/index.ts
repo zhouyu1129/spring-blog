@@ -102,6 +102,8 @@ export const authApi = {
     request('/user/profile/send_email_code', { method: 'POST' }),
   forgotPassword: (email: string, studentNumber: string) =>
     request('/user/forgot_password', { method: 'POST', body: { email, student_number: studentNumber } }),
+  resetPassword: (token: string, newPassword: string) =>
+    request('/user/reset_password', { method: 'POST', body: { token, new_password: newPassword } }),
   getUserProfile: (userId: string) =>
     request(`/user/user/${userId}`),
   resendVerification: () =>
@@ -125,6 +127,10 @@ export const articleApi = {
     request(`/article/${indexId}/edit/`, { method: 'POST', body: data, isFormData: true }),
   delete: (indexId: number) =>
     request(`/article/${indexId}/delete/`, { method: 'POST' }),
+  hide: (indexId: number) =>
+    request(`/article/${indexId}/hide/`, { method: 'POST' }),
+  unhide: (indexId: number) =>
+    request(`/article/${indexId}/unhide/`, { method: 'POST' }),
   uploadFile: (file: File) => {
     const formData = new FormData()
     formData.append('file', file)

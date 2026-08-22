@@ -54,9 +54,9 @@ async function handleSubmit() {
       <div class="p-6">
         <form @submit.prevent="handleSubmit">
           <div class="mb-4">
-            <label class="block text-sm font-medium mb-1.5">邮箱/用户名</label>
+            <label class="block text-sm font-medium mb-1.5">邮箱/学号/用户名</label>
             <input v-model="email" type="text" required class="w-full border border-zinc-300 rounded-md px-4 py-2.5 text-sm focus:outline-none focus:border-emerald-500" />
-            <p class="text-xs text-zinc-400 mt-1">请输入您的邮箱或用户名</p>
+            <p class="text-xs text-zinc-400 mt-1">请输入您的邮箱、学号或用户名</p>
           </div>
           <div class="mb-4">
             <label class="block text-sm font-medium mb-1.5">密码</label>

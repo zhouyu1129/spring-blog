@@ -2,7 +2,9 @@ package org.example.blog.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.example.blog.dao.Article;
 import org.example.blog.dao.User;
+import org.example.blog.mapper.ArticleMapper;
 import org.example.blog.service.CustomUserDetails;
 import org.example.blog.service.EmailService;
 import org.example.blog.service.UserService;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -34,16 +37,22 @@ public class ApiUserController {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final EmailService emailService;
+    private final ArticleMapper articleMapper;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
 
+    /** 用户主页每页文章数 */
+    private static final int PROFILE_PAGE_SIZE = 10;
+
     public ApiUserController(UserService userService, PasswordEncoder passwordEncoder,
-                             AuthenticationManager authenticationManager, EmailService emailService) {
+                             AuthenticationManager authenticationManager, EmailService emailService,
+                             ArticleMapper articleMapper) {
         this.userService = userService;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.emailService = emailService;
+        this.articleMapper = articleMapper;
     }
 
     // ========== 登录 ==========
@@ -345,6 +354,18 @@ public class ApiUserController {
 
     // ========== 重置密码（通过令牌）==========
 
+    /**
+     * 邮件中重置密码链接的落地入口（GET）：重定向到前端重置密码页面。
+     * 不在此处校验令牌——令牌是一次性的，仅在用户提交新密码时（POST）消费。
+     */
+    @GetMapping("/reset_password")
+    public RedirectView resetPasswordLink(@RequestParam(required = false) String token) {
+        if (token == null || token.isBlank()) {
+            return new RedirectView(frontendUrl + "/user/reset-password");
+        }
+        return new RedirectView(frontendUrl + "/user/reset-password?token=" + token);
+    }
+
     @PostMapping("/reset_password")
     public ResponseEntity<?> resetPassword(@RequestBody Map<String, String> body) {
         String token = body.get("token");
@@ -378,7 +399,9 @@ public class ApiUserController {
     // ========== 查看他人主页 ==========
 
     @GetMapping("/user/{userId}")
-    public ResponseEntity<?> getUserProfile(@PathVariable String userId) {
+    public ResponseEntity<?> getUserProfile(@PathVariable String userId,
+                                            @RequestParam(defaultValue = "1") int article_page,
+                                            @RequestParam(defaultValue = "1") int comment_page) {
         User targetUser;
         try {
             targetUser = userService.getById(java.util.UUID.fromString(userId));
@@ -392,11 +415,58 @@ public class ApiUserController {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("target_user", toPublicProfileMap(targetUser));
-        // TODO: 添加 article_page_obj 和 comment_page_obj（需要文章和评论模块）
-        result.put("articles", java.util.List.of());
-        result.put("comments", java.util.List.of());
+        // 文章：按作者查询最新版本，过滤已删除文章（隐藏文章他人不可见）
+        List<Article> articles = articleMapper.selectByAuthorId(targetUser.getId()).stream()
+                .filter(a -> !Boolean.TRUE.equals(a.getIsDeleted()))
+                .filter(a -> !Boolean.TRUE.equals(a.getIsHidden()))
+                .toList();
+        result.put("article_page_obj", buildArticlePage(articles, article_page, targetUser));
+        // TODO: 评论模块完成后填充 comment_page_obj
+        result.put("comment_page_obj", Map.of(
+                "number", 1,
+                "paginator", Map.of("num_pages", 1),
+                "object_list", java.util.List.of()));
 
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 对文章列表做内存分页，构造前端 UserProfilePage 期望的 page_obj 结构：
+     * { number: 当前页码, paginator: { num_pages: 总页数 }, object_list: [...] }
+     */
+    private Map<String, Object> buildArticlePage(List<Article> articles, int page, User author) {
+        int total = articles.size();
+        int numPages = Math.max(1, (total + PROFILE_PAGE_SIZE - 1) / PROFILE_PAGE_SIZE);
+        int safePage = Math.clamp(page, 1, numPages);
+        int fromIndex = (safePage - 1) * PROFILE_PAGE_SIZE;
+        int toIndex = Math.min(fromIndex + PROFILE_PAGE_SIZE, total);
+
+        List<Map<String, Object>> objectList = articles.subList(fromIndex, toIndex).stream()
+                .map(a -> toArticleSummaryMap(a, author))
+                .toList();
+
+        Map<String, Object> pageObj = new LinkedHashMap<>();
+        pageObj.put("number", safePage);
+        pageObj.put("paginator", Map.of("num_pages", numPages));
+        pageObj.put("object_list", objectList);
+        return pageObj;
+    }
+
+    /**
+     * 文章摘要条目（用户主页卡片）：含作者信息，字段与 api-docs.md 1.13 对应
+     */
+    private Map<String, Object> toArticleSummaryMap(Article article, User author) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("index_id", article.getIndexId());
+        map.put("title", article.getTitle());
+        map.put("created_at", article.getCreatedAt() != null ? article.getCreatedAt().toString() : null);
+        map.put("updated_at", article.getUpdatedAt() != null ? article.getUpdatedAt().toString() : null);
+        map.put("content", article.getContent());
+        map.put("author_id", Map.of(
+                "id", author.getId().toString(),
+                "nickname", author.getNickname() != null ? author.getNickname() : "",
+                "username", author.getUsername() != null ? author.getUsername() : ""));
+        return map;
     }
 
     // ========== 辅助方法 ==========

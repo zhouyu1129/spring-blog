@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Save, X, Upload, Trash2, Copy } from 'lucide-vue-next'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
@@ -33,22 +33,30 @@ function buildPreviewSource(val: string): string {
   })
 }
 
+// 预览渲染防抖：避免每次按键/点击引用都同步渲染 Markdown 导致界面卡顿
+let previewTimer: ReturnType<typeof setTimeout> | undefined
 watch(content, (val) => {
-  previewHtml.value = renderMarkdown(buildPreviewSource(val))
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = setTimeout(() => {
+    previewHtml.value = renderMarkdown(buildPreviewSource(val))
+  }, 300)
 })
 
 function insertImageRef(imageId: number) { content.value += `[[img_id=${imageId}]]` }
-function removeImage(imageId: number) { uploadedImages.value = uploadedImages.value.filter(img => img.id !== imageId) }
+function removeImage(imageId: number) {
+  const target = uploadedImages.value.find(img => img.id === imageId)
+  if (target) URL.revokeObjectURL(target.url)
+  uploadedImages.value = uploadedImages.value.filter(img => img.id !== imageId)
+}
 
 function handleImageSelect(event: Event) {
   const input = event.target as HTMLInputElement
   if (!input.files) return
   Array.from(input.files).forEach(file => {
     if (!file.type.startsWith('image/')) return
-    const reader = new FileReader()
     const imageId = nextImageId.value++
-    reader.onload = (e) => { uploadedImages.value.push({ id: imageId, name: file.name, url: e.target?.result as string, file }) }
-    reader.readAsDataURL(file)
+    // 用 object URL 代替 base64 dataURL：URL 很短，预览渲染不会被兆级 base64 卡死；且同步可用
+    uploadedImages.value.push({ id: imageId, name: file.name, url: URL.createObjectURL(file), file })
   })
   input.value = ''
 }
@@ -124,6 +132,18 @@ async function handleSubmit() {
   }
 }
 
+// 按正文引用同步"已有图片"勾选：正文引用了图片 URL（标准 Markdown）才保留关联，
+// 删除正文中的引用时自动取消勾选，避免提交时把已不再引用的图片一并保留
+function syncKeepImagesByContent(val: string) {
+  keepImages.value = existingImages.value
+    .filter((img: any) => img.content?.url && val.includes(img.content.url))
+    .map((img: any) => String(img.id))
+}
+
+watch(content, (val) => {
+  syncKeepImagesByContent(val)
+})
+
 onMounted(async () => {
   try {
     const res = await articleApi.getDetail(indexId)
@@ -133,13 +153,19 @@ onMounted(async () => {
       content.value = res.data.article?.content || ''
       existingImages.value = res.data.images || []
       existingFiles.value = res.data.files || []
-      nextImageId.value = existingImages.value.length + 1
-      keepImages.value = existingImages.value.map((img: any) => String(img.id))
+      nextImageId.value = Math.max(nextImageId.value, existingImages.value.length + 1)
+      // 初始勾选按正文实际引用（而非全选）
+      syncKeepImagesByContent(content.value)
       keepFiles.value = existingFiles.value.map((f: any) => String(f.id))
     }
     const tempRes = await articleApi.getTempFiles()
     if (tempRes.data.success) uploadedFiles.value = tempRes.data.files || []
   } catch (e) { console.error(e) }
+})
+
+onUnmounted(() => {
+  if (previewTimer) clearTimeout(previewTimer)
+  uploadedImages.value.forEach(img => URL.revokeObjectURL(img.url))
 })
 </script>
 
@@ -170,17 +196,19 @@ onMounted(async () => {
           <div v-if="existingImages.length > 0" class="mb-4">
             <label class="block text-sm font-medium mb-1.5">已有图片</label>
             <div class="grid grid-cols-4 gap-3">
-              <div v-for="(image, idx) in existingImages" :key="image.id" class="border border-zinc-200 rounded-lg overflow-hidden bg-white">
+              <div v-for="(image, idx) in existingImages" :key="image.id" class="border border-zinc-200 rounded-lg overflow-hidden bg-white"
+                   :class="{ 'opacity-50': !keepImages.includes(String(image.id)) }">
                 <img :src="image.content?.url || image.content" class="w-full h-28 object-cover" />
                 <div class="p-2">
-                  <label class="flex items-center gap-1.5 text-xs">
-                    <input type="checkbox" :value="String(image.id)" v-model="keepImages" class="rounded" />
-                    图片 {{ idx + 1 }}
-                  </label>
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs text-zinc-500">图片 {{ idx + 1 }}</span>
+                    <span v-if="keepImages.includes(String(image.id))" class="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">正文中已引用</span>
+                    <span v-else class="text-xs bg-zinc-100 text-zinc-400 px-1.5 py-0.5 rounded">未引用，保存后解除关联</span>
+                  </div>
                 </div>
               </div>
             </div>
-            <p class="text-xs text-zinc-400 mt-1">取消勾选将删除该图片</p>
+            <p class="text-xs text-zinc-400 mt-1">图片是否保留由正文引用决定：删除正文中的图片引用后，保存时将解除关联（图片文件和历史版本不受影响）</p>
           </div>
 
           <!-- New image upload -->

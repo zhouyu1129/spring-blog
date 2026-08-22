@@ -27,6 +27,10 @@ public class EmailService {
     @Value("${spring.mail.username:noreply@blog.com}")
     private String fromEmail;
 
+    /** 前端地址：邮件中的验证/重置链接以前端域名发出，由前端转发给后端处理 */
+    @Value("${app.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
+
     /** 验证码长度 */
     private static final int CODE_LENGTH = 6;
     /** 验证码有效期（分钟） */
@@ -65,7 +69,14 @@ public class EmailService {
         redisTemplate.opsForValue().set(cooldownKey, "1", Duration.ofSeconds(SEND_COOLDOWN_SECONDS));
 
         // 异步发送邮件
-        sendCodeEmail(email, code, purpose);
+        // 测试用户的邮件直接发给自身
+        if (email.contains("@example.com")) {
+            sendCodeEmail(fromEmail, code, purpose);
+            log.info("测试用户 " + email + " 的邮件直接发给自身: " + fromEmail);
+        }
+        else {
+            sendCodeEmail(email, code, purpose);
+        }
 
         return true;
     }
@@ -115,7 +126,14 @@ public class EmailService {
         redisTemplate.opsForValue().set(tokenKey, userId, Duration.ofHours(24));
         // 记录该用户最新的令牌
         redisTemplate.opsForValue().set(userTokenKey, token, Duration.ofHours(24));
-        sendVerificationEmail(email, token);
+        // 测试用户的邮件直接发给自身
+        if (email.contains("@example.com")) {
+            sendVerificationEmail(fromEmail, token);
+            log.info("测试用户 " + email + " 的邮件直接发给自身: " + fromEmail);
+        }
+        else {
+            sendVerificationEmail(email, token);
+        }
         return token;
     }
 
@@ -152,7 +170,14 @@ public class EmailService {
         redisTemplate.opsForValue().set(tokenKey, userId, Duration.ofMinutes(30));
 
         // 发送重置邮件
-        sendResetEmail(email, token);
+        // 测试用户的邮件直接发给自身
+        if (email.contains("@example.com")) {
+            sendResetEmail(fromEmail, token);
+            log.info("测试用户 " + email + " 的邮件直接发给自身: " + fromEmail);
+        }
+        else {
+            sendResetEmail(email, token);
+        }
 
         return token;
     }
@@ -178,7 +203,7 @@ public class EmailService {
      * 生成6位数字验证码
      */
     private String generateCode() {
-        int code = ThreadLocalRandom.current().nextInt(100000, 1000000);
+        int code = ThreadLocalRandom.current().nextInt((int) Math.pow(10, CODE_LENGTH), (int) Math.pow(10, CODE_LENGTH + 1));
         return String.valueOf(code);
     }
 
@@ -233,7 +258,7 @@ public class EmailService {
             helper.setTo(to);
             helper.setSubject("【校园博客】密码重置");
 
-            String resetUrl = "/api/user/reset_password?token=" + token;
+            String resetUrl = frontendUrl + "/api/user/reset_password?token=" + token;
 
             String content = """
                 <div style="max-width:600px;margin:0 auto;padding:20px;font-family:sans-serif;">
@@ -269,7 +294,7 @@ public class EmailService {
             helper.setTo(to);
             helper.setSubject("【校园博客】邮箱验证");
 
-            String verifyUrl = "/api/user/verify_email?token=" + token;
+            String verifyUrl = frontendUrl + "/api/user/verify_email?token=" + token;
 
             String content = """
                 <div style="max-width:600px;margin:0 auto;padding:20px;font-family:sans-serif;">

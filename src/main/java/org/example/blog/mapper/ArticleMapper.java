@@ -18,11 +18,14 @@ public interface ArticleMapper {
     /** 查询author_id对应的文章列表，按created_at降序，相同index_id只保留updated_at最新的一个 */
     List<Article> selectByAuthorId(UUID authorId);
 
+    /** 查询全部文章列表，按created_at降序，相同index_id只保留updated_at最新的一个 */
+    List<Article> selectAll();
+
     /** 查询title包含keyword的文章列表，按created_at降序，相同index_id只保留updated_at最新的一个 */
     List<Article> selectByTitleContaining(String keyword);
 
     /** 插入文章，自动查询index_id相同的对象并设置created_at，若没有则设置created_at为updated_at
-      * 使用此接口插入时is_deleted和is_hidden永远为false
+      * 使用此接口插入时is_deleted永远为false，旧文章（indexId不为null）的is_hidden沿用上一版本，新文章使用DEFAULT
       * indexId 为 null（新文章）时由数据库序列（SERIAL）自动生成，指定时（保存新版本）沿用 */
     int insert(Article article);
 

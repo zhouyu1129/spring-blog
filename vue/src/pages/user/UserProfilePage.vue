@@ -6,7 +6,7 @@ import Pagination from '@/components/Pagination.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { authApi } from '@/api'
 import { useAuth } from '@/composables/useAuth'
-import { markdownToText } from '@/lib/markdown'
+import { markdownToText, renderMarkdown } from '@/lib/markdown'
 
 const route = useRoute()
 const router = useRouter()
@@ -34,7 +34,12 @@ async function fetchProfile() {
     const res = await authApi.getUserProfile(userId)
     if (res.ok) {
       targetUser.value = res.data.target_user
-      articles.value = res.data.article_page_obj?.object_list || res.data.articles || []
+      const list = res.data.article_page_obj?.object_list || res.data.articles || []
+      // 后端只提供 Markdown 原文，首图预览由前端渲染计算
+      articles.value = list.map((article: any) => ({
+        ...article,
+        rendered_html: renderMarkdown(article.content || ''),
+      }))
       articleTotalPages.value = res.data.article_page_obj?.paginator?.num_pages || 1
       comments.value = res.data.comment_page_obj?.object_list || res.data.comments || []
       commentTotalPages.value = res.data.comment_page_obj?.paginator?.num_pages || 1
@@ -42,6 +47,12 @@ async function fetchProfile() {
   } catch (e) {
     console.error('Failed to fetch user profile', e)
   }
+}
+
+function getFirstImage(article: any): string | null {
+  const html = article.rendered_html || ''
+  const match = html.match(/<img[^>]+src="([^"]+)"/)
+  return match ? match[1] : null
 }
 
 onMounted(fetchProfile)
@@ -101,17 +112,24 @@ onMounted(fetchProfile)
       <div v-if="activeTab === 'articles'">
         <div v-if="articles.length > 0" class="space-y-4">
           <div v-for="article in articles" :key="article.index_id" class="bg-white rounded-xl shadow-sm border border-zinc-100 p-5 hover:shadow-md transition-shadow">
-            <h5 class="font-semibold mb-1">
-              <router-link :to="{ name: 'article-detail', params: { indexId: article.index_id } }" class="hover:text-emerald-600 transition-colors">
-                {{ article.title }}
-              </router-link>
-            </h5>
-            <p class="text-zinc-400 text-xs mb-2">
-              {{ formatDate(article.created_at) }}
-              <template v-if="article.created_at !== article.updated_at"> | 更新于 {{ formatDate(article.updated_at) }}</template>
-            </p>
-            <p v-if="article.content" class="text-zinc-500 text-sm line-clamp-2 mb-2">{{ markdownToText(article.content, 150) }}</p>
-            <router-link :to="{ name: 'article-detail', params: { indexId: article.index_id } }" class="text-emerald-600 text-sm hover:underline">阅读全文 &rarr;</router-link>
+            <div class="flex gap-4">
+              <div class="flex-1 min-w-0">
+                <h5 class="font-semibold mb-1">
+                  <router-link :to="{ name: 'article-detail', params: { indexId: article.index_id } }" class="hover:text-emerald-600 transition-colors">
+                    {{ article.title }}
+                  </router-link>
+                </h5>
+                <p class="text-zinc-400 text-xs mb-2">
+                  {{ formatDate(article.created_at) }}
+                  <template v-if="article.created_at !== article.updated_at"> | 更新于 {{ formatDate(article.updated_at) }}</template>
+                </p>
+                <p v-if="article.content" class="text-zinc-500 text-sm line-clamp-2 mb-2">{{ markdownToText(article.content, 150) }}</p>
+                <router-link :to="{ name: 'article-detail', params: { indexId: article.index_id } }" class="text-emerald-600 text-sm hover:underline">阅读全文 &rarr;</router-link>
+              </div>
+              <div v-if="getFirstImage(article)" class="flex-shrink-0 hidden sm:block">
+                <img :src="getFirstImage(article)" :alt="article.title" class="w-32 h-24 object-cover rounded-lg" />
+              </div>
+            </div>
           </div>
         </div>
         <div v-else class="bg-white rounded-xl shadow-sm border border-zinc-100 p-8 text-center text-zinc-400">

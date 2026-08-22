@@ -110,6 +110,7 @@ watch(() => route.query.search, (val) => {
                 <router-link :to="{ name: 'article-detail', params: { indexId: article.index_id } }" class="hover:text-emerald-600 transition-colors">
                   {{ article.title }}
                 </router-link>
+                <span v-if="article.is_hidden" class="ml-2 align-middle text-xs font-normal bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">已隐藏</span>
               </h2>
               <p class="text-zinc-400 text-sm mb-3">
                 作者：{{ article.author_id?.nickname || article.author_id?.username || '未知' }} |
