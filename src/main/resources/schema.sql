@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS articles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_article_index_id ON articles (index_id);
+CREATE INDEX IF NOT EXISTS idx_articles_author_id ON articles (author_id);
 
 -- 图片表
 CREATE TABLE IF NOT EXISTS images (
@@ -80,6 +81,10 @@ CREATE TABLE IF NOT EXISTS comments (
     created_at       TIMESTAMP        DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at       TIMESTAMP        DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
+
+-- 按文章查询评论（文章详情页）、按作者查询评论（用户主页）
+CREATE INDEX IF NOT EXISTS idx_comments_article_index_id ON comments (article_index_id);
+CREATE INDEX IF NOT EXISTS idx_comments_author_id ON comments (author_id);
 
 -- 角色表
 CREATE TABLE IF NOT EXISTS roles (

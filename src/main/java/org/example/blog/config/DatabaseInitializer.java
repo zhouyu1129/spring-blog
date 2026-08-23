@@ -29,6 +29,17 @@ public class DatabaseInitializer {
             executeSchemaSql(dataSource);
             System.out.println("[DatabaseInitializer] 表结构已创建");
 
+            // 标题模糊搜索优化：pg_trgm 三元组 GIN 索引可加速 ILIKE '%keyword%'。
+            // 创建扩展需要数据库相应权限，失败时仅失去索引加速（功能不受影响），不阻断启动
+            try {
+                jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm");
+                jdbcTemplate.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_articles_title_trgm ON articles USING gin (title gin_trgm_ops)");
+                System.out.println("[DatabaseInitializer] 标题搜索 trigram 索引已创建");
+            } catch (Exception e) {
+                System.out.println("[DatabaseInitializer] 创建 pg_trgm 索引失败（不影响功能）: " + e.getMessage());
+            }
+
             // 检查是否已有 admin 用户
             Integer adminCount = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM users WHERE username = 'admin'",

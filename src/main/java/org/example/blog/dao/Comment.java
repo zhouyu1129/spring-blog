@@ -16,4 +16,7 @@ public class Comment {
     private Boolean isHidden;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    /** 所属文章标题（仅用户主页评论查询的 JOIN 结果使用，非表字段） */
+    private String articleTitle;
 }

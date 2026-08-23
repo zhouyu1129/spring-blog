@@ -1,6 +1,7 @@
 package org.example.blog.mapper;
 
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 import org.example.blog.dao.Article;
 
 import java.util.List;
@@ -15,14 +16,36 @@ public interface ArticleMapper {
     /** 根据 index_id 查询文章，只保留updated_at最新的一个 */
     Article selectByIndexId(Integer indexId);
 
-    /** 查询author_id对应的文章列表，按created_at降序，相同index_id只保留updated_at最新的一个 */
-    List<Article> selectByAuthorId(UUID authorId);
+    /**
+     * 分页查询全站可见文章（可见性过滤与分页在 SQL 层完成），按 created_at 降序，
+     * 相同 index_id 只保留 updated_at 最新的一个版本。
+     * 可见性：已删除文章不返回；已隐藏文章仅当查看者是管理员（isAdmin）或作者本人（viewerId）时返回。
+     * keyword 为 null 或空时不过滤标题，否则按标题 ILIKE 模糊匹配。
+     */
+    List<Article> selectVisiblePage(@Param("keyword") String keyword,
+                                    @Param("viewerId") UUID viewerId,
+                                    @Param("isAdmin") boolean isAdmin,
+                                    @Param("limit") int limit,
+                                    @Param("offset") int offset);
 
-    /** 查询全部文章列表，按created_at降序，相同index_id只保留updated_at最新的一个 */
-    List<Article> selectAll();
+    /** 统计全站可见文章总数（过滤条件与 selectVisiblePage 一致） */
+    long countVisible(@Param("keyword") String keyword,
+                      @Param("viewerId") UUID viewerId,
+                      @Param("isAdmin") boolean isAdmin);
 
-    /** 查询title包含keyword的文章列表，按created_at降序，相同index_id只保留updated_at最新的一个 */
-    List<Article> selectByTitleContaining(String keyword);
+    /**
+     * 分页查询某作者主页的可见文章（过滤与分页在 SQL 层完成），按 created_at 降序，
+     * 相同 index_id 只保留 updated_at 最新的一个版本。
+     * canViewHidden 为 true（作者本人或管理员查看）时包含已隐藏文章，否则不含。
+     */
+    List<Article> selectVisibleByAuthorPage(@Param("authorId") UUID authorId,
+                                            @Param("canViewHidden") boolean canViewHidden,
+                                            @Param("limit") int limit,
+                                            @Param("offset") int offset);
+
+    /** 统计某作者主页的可见文章总数（过滤条件与 selectVisibleByAuthorPage 一致） */
+    long countVisibleByAuthor(@Param("authorId") UUID authorId,
+                              @Param("canViewHidden") boolean canViewHidden);
 
     /** 插入文章，自动查询index_id相同的对象并设置created_at，若没有则设置created_at为updated_at
       * 使用此接口插入时is_deleted永远为false，旧文章（indexId不为null）的is_hidden沿用上一版本，新文章使用DEFAULT

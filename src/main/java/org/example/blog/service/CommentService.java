@@ -39,7 +39,8 @@ public class CommentService {
     // ========== 查询 ==========
 
     /**
-     * 文章的评论列表（分页），返回前端约定的结构（article + page_obj）
+     * 文章的评论列表（分页），返回前端约定的结构（article + page_obj）。
+     * 评论可见性过滤与分页在 SQL 层完成
      * <p>
      * 文章可见性：已删除文章任何人都不可见；已隐藏文章仅管理员和作者本人可见（与文章详情一致）
      * <p>
@@ -59,26 +60,13 @@ public class CommentService {
             return null;
         }
 
-        // 过滤已删除评论；已隐藏评论仅管理员和评论作者本人可见
-        List<Comment> visible = new ArrayList<>();
-        for (Comment comment : commentMapper.selectByArticleIndexId(articleIndexId)) {
-            if (Boolean.TRUE.equals(comment.getIsDeleted())) {
-                continue;
-            }
-            if (Boolean.TRUE.equals(comment.getIsHidden()) && !canViewHiddenComment(comment, userId, isAdmin)) {
-                continue;
-            }
-            visible.add(comment);
-        }
-
-        // 内存分页
-        int totalPages = Math.max(1, (visible.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        long total = commentMapper.countVisible(articleIndexId, userId, isAdmin);
+        int totalPages = (int) Math.max(1, (total + PAGE_SIZE - 1) / PAGE_SIZE);
         int currentPage = Math.clamp(page, 1, totalPages);
-        int fromIndex = (currentPage - 1) * PAGE_SIZE;
-        int toIndex = Math.min(fromIndex + PAGE_SIZE, visible.size());
+        int offset = (currentPage - 1) * PAGE_SIZE;
 
         List<Map<String, Object>> objectList = new ArrayList<>();
-        for (Comment comment : visible.subList(fromIndex, toIndex)) {
+        for (Comment comment : commentMapper.selectVisiblePage(articleIndexId, userId, isAdmin, PAGE_SIZE, offset)) {
             objectList.add(toCommentMap(comment));
         }
 
@@ -94,7 +82,8 @@ public class CommentService {
     }
 
     /**
-     * 用户的评论列表（分页，用户主页使用），返回前端约定的 page_obj 结构；
+     * 用户的评论列表（分页，用户主页使用），返回前端约定的 page_obj 结构。
+     * 过滤与分页在 SQL 层完成（评论可见性 + 所属文章可见性通过 JOIN 过滤）；
      * 已删除评论不展示；已隐藏评论仅管理员和评论作者本人可见；
      * 所属文章已删除或已隐藏的评论不展示（与该接口文章列表的处理一致）
      *
@@ -103,33 +92,20 @@ public class CommentService {
      * @param viewerIsAdmin 当前查看者是否管理员
      */
     public Map<String, Object> listByAuthor(UUID authorId, int page, UUID viewerId, boolean viewerIsAdmin) {
-        List<Map<String, Object>> visible = new ArrayList<>();
-        for (Comment comment : commentMapper.selectByAuthorId(authorId)) {
-            if (Boolean.TRUE.equals(comment.getIsDeleted())) {
-                continue;
-            }
-            if (Boolean.TRUE.equals(comment.getIsHidden()) && !canViewHiddenComment(comment, viewerId, viewerIsAdmin)) {
-                continue;
-            }
-            Article article = comment.getArticleIndexId() == null
-                    ? null : articleMapper.selectByIndexId(comment.getArticleIndexId());
-            if (article == null || Boolean.TRUE.equals(article.getIsDeleted())
-                    || Boolean.TRUE.equals(article.getIsHidden())) {
-                continue;
-            }
-            visible.add(toProfileCommentMap(comment, article));
-        }
-
-        // 内存分页
-        int totalPages = Math.max(1, (visible.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        long total = commentMapper.countVisibleByAuthor(authorId, viewerId, viewerIsAdmin);
+        int totalPages = (int) Math.max(1, (total + PAGE_SIZE - 1) / PAGE_SIZE);
         int currentPage = Math.clamp(page, 1, totalPages);
-        int fromIndex = (currentPage - 1) * PAGE_SIZE;
-        int toIndex = Math.min(fromIndex + PAGE_SIZE, visible.size());
+        int offset = (currentPage - 1) * PAGE_SIZE;
+
+        List<Map<String, Object>> objectList = new ArrayList<>();
+        for (Comment comment : commentMapper.selectVisibleByAuthorPage(authorId, viewerId, viewerIsAdmin, PAGE_SIZE, offset)) {
+            objectList.add(toProfileCommentMap(comment));
+        }
 
         Map<String, Object> pageObj = new LinkedHashMap<>();
         pageObj.put("number", currentPage);
         pageObj.put("paginator", Map.of("num_pages", totalPages));
-        pageObj.put("object_list", new ArrayList<>(visible.subList(fromIndex, toIndex)));
+        pageObj.put("object_list", objectList);
         return pageObj;
     }
 
@@ -206,11 +182,6 @@ public class CommentService {
         return isAdmin || (userId != null && userId.equals(article.getAuthorId()));
     }
 
-    /** 已隐藏评论是否对当前用户可见（管理员或评论作者本人） */
-    private boolean canViewHiddenComment(Comment comment, UUID userId, boolean isAdmin) {
-        return isAdmin || (userId != null && userId.equals(comment.getAuthorId()));
-    }
-
     /** Comment → 前端评论结构（top 字段数据库暂未实现，固定为 false） */
     private Map<String, Object> toCommentMap(Comment comment) {
         Map<String, Object> map = new LinkedHashMap<>();
@@ -224,12 +195,12 @@ public class CommentService {
         return map;
     }
 
-    /** Comment → 用户主页评论结构（比评论列表条目多一个 article 字段） */
-    private Map<String, Object> toProfileCommentMap(Comment comment, Article article) {
+    /** Comment → 用户主页评论结构（比评论列表条目多一个 article 字段，标题由 SQL JOIN 带回） */
+    private Map<String, Object> toProfileCommentMap(Comment comment) {
         Map<String, Object> map = toCommentMap(comment);
         Map<String, Object> articleMap = new LinkedHashMap<>();
-        articleMap.put("index_id", article.getIndexId());
-        articleMap.put("title", article.getTitle());
+        articleMap.put("index_id", comment.getArticleIndexId());
+        articleMap.put("title", comment.getArticleTitle());
         map.put("article", articleMap);
         return map;
     }

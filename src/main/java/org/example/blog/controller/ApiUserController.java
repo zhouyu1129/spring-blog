@@ -424,12 +424,8 @@ public class ApiUserController {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("target_user", toPublicProfileMap(targetUser));
-        // 文章：按作者查询最新版本，过滤已删除文章；隐藏文章仅本人/管理员可见
-        List<Article> articles = articleMapper.selectByAuthorId(targetUser.getId()).stream()
-                .filter(a -> !Boolean.TRUE.equals(a.getIsDeleted()))
-                .filter(a -> !Boolean.TRUE.equals(a.getIsHidden()) || canViewHidden)
-                .toList();
-        result.put("article_page_obj", buildArticlePage(articles, article_page, targetUser));
+        // 文章：按作者查询最新版本，过滤与分页在 SQL 层完成；隐藏文章仅本人/管理员可见
+        result.put("article_page_obj", buildArticlePage(targetUser, article_page, canViewHidden));
         // 评论：按作者查询最新版本；隐藏评论仅本人/管理员可见，所属文章已删除/已隐藏的评论不展示
         result.put("comment_page_obj", commentService.listByAuthor(targetUser.getId(), comment_page,
                 currentUser != null ? currentUser.getId() : null, viewerIsAdmin));
@@ -438,17 +434,18 @@ public class ApiUserController {
     }
 
     /**
-     * 对文章列表做内存分页，构造前端 UserProfilePage 期望的 page_obj 结构：
-     * { number: 当前页码, paginator: { num_pages: 总页数 }, object_list: [...] }
+     * 构造前端 UserProfilePage 期望的 page_obj 结构：
+     * { number: 当前页码, paginator: { num_pages: 总页数 }, object_list: [...] }。
+     * 过滤与分页在 SQL 层完成（canViewHidden 为 true 时包含已隐藏文章）
      */
-    private Map<String, Object> buildArticlePage(List<Article> articles, int page, User author) {
-        int total = articles.size();
-        int numPages = Math.max(1, (total + PROFILE_PAGE_SIZE - 1) / PROFILE_PAGE_SIZE);
+    private Map<String, Object> buildArticlePage(User author, int page, boolean canViewHidden) {
+        long total = articleMapper.countVisibleByAuthor(author.getId(), canViewHidden);
+        int numPages = (int) Math.max(1, (total + PROFILE_PAGE_SIZE - 1) / PROFILE_PAGE_SIZE);
         int safePage = Math.clamp(page, 1, numPages);
-        int fromIndex = (safePage - 1) * PROFILE_PAGE_SIZE;
-        int toIndex = Math.min(fromIndex + PROFILE_PAGE_SIZE, total);
+        int offset = (safePage - 1) * PROFILE_PAGE_SIZE;
 
-        List<Map<String, Object>> objectList = articles.subList(fromIndex, toIndex).stream()
+        List<Map<String, Object>> objectList = articleMapper
+                .selectVisibleByAuthorPage(author.getId(), canViewHidden, PROFILE_PAGE_SIZE, offset).stream()
                 .map(a -> toArticleSummaryMap(a, author))
                 .toList();
 

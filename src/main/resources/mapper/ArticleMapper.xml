@@ -19,8 +19,48 @@
         LIMIT 1
     </select>
 
-    <!-- 查询作者的文章列表：同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
-    <select id="selectByAuthorId" resultType="org.example.blog.dao.Article">
+    <!-- 分页查询全站可见文章（过滤与分页在 SQL 层完成）：
+         已删除文章不返回；已隐藏文章仅管理员或作者本人可见；keyword 非空时按标题 ILIKE 模糊匹配；
+         同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
+    <select id="selectVisiblePage" resultType="org.example.blog.dao.Article">
+        SELECT t.id, t.index_id, t.title, t.content, t.author_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
+        FROM (
+            SELECT DISTINCT ON (index_id) id, index_id, title, content, author_id, is_deleted, is_hidden, created_at, updated_at
+            FROM articles
+            <where>
+                <if test="keyword != null and keyword != ''">
+                    title ILIKE CONCAT('%', #{keyword}, '%')
+                </if>
+            </where>
+            ORDER BY index_id, updated_at DESC
+        ) t
+        WHERE t.is_deleted = FALSE
+          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{isAdmin} = TRUE)
+        ORDER BY t.created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 统计全站可见文章总数（过滤条件与 selectVisiblePage 一致） -->
+    <select id="countVisible" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT DISTINCT ON (index_id) id, author_id, is_deleted, is_hidden
+            FROM articles
+            <where>
+                <if test="keyword != null and keyword != ''">
+                    title ILIKE CONCAT('%', #{keyword}, '%')
+                </if>
+            </where>
+            ORDER BY index_id, updated_at DESC
+        ) t
+        WHERE t.is_deleted = FALSE
+          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{isAdmin} = TRUE)
+    </select>
+
+    <!-- 分页查询作者主页的可见文章（过滤与分页在 SQL 层完成）：
+         已删除文章不返回；canViewHidden 为 true（作者本人或管理员）时包含已隐藏文章；
+         同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
+    <select id="selectVisibleByAuthorPage" resultType="org.example.blog.dao.Article">
         SELECT t.id, t.index_id, t.title, t.content, t.author_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
         FROM (
             SELECT DISTINCT ON (index_id) id, index_id, title, content, author_id, is_deleted, is_hidden, created_at, updated_at
@@ -28,30 +68,27 @@
             WHERE author_id = #{authorId}
             ORDER BY index_id, updated_at DESC
         ) t
+        WHERE t.is_deleted = FALSE
+        <if test="!canViewHidden">
+          AND t.is_hidden = FALSE
+        </if>
         ORDER BY t.created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
     </select>
 
-    <!-- 查询全部文章：同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
-    <select id="selectAll" resultType="org.example.blog.dao.Article">
-        SELECT t.id, t.index_id, t.title, t.content, t.author_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
+    <!-- 统计作者主页的可见文章总数（过滤条件与 selectVisibleByAuthorPage 一致） -->
+    <select id="countVisibleByAuthor" resultType="long">
+        SELECT COUNT(*)
         FROM (
-            SELECT DISTINCT ON (index_id) id, index_id, title, content, author_id, is_deleted, is_hidden, created_at, updated_at
+            SELECT DISTINCT ON (index_id) id, is_deleted, is_hidden
             FROM articles
+            WHERE author_id = #{authorId}
             ORDER BY index_id, updated_at DESC
         ) t
-        ORDER BY t.created_at DESC
-    </select>
-
-    <!-- 按标题模糊搜索：同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
-    <select id="selectByTitleContaining" resultType="org.example.blog.dao.Article">
-        SELECT t.id, t.index_id, t.title, t.content, t.author_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
-        FROM (
-            SELECT DISTINCT ON (index_id) id, index_id, title, content, author_id, is_deleted, is_hidden, created_at, updated_at
-            FROM articles
-            WHERE title ILIKE CONCAT('%', #{keyword}, '%')
-            ORDER BY index_id, updated_at DESC
-        ) t
-        ORDER BY t.created_at DESC
+        WHERE t.is_deleted = FALSE
+        <if test="!canViewHidden">
+          AND t.is_hidden = FALSE
+        </if>
     </select>
 
     <!-- 插入文章：index_id 为 null（新文章）时由 SERIAL 序列自动生成，指定时（保存新版本）沿用；

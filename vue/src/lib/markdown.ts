@@ -1,4 +1,5 @@
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 marked.setOptions({
   breaks: true,
@@ -32,10 +33,11 @@ function slugify(text: string, used: Map<string, number>): string {
 }
 
 /**
- * 渲染 Markdown 为 HTML，并给标题（h1-h6）添加锚点 id，同时收集标题生成目录
+ * 渲染 Markdown 为 HTML，并给标题（h1-h6）添加锚点 id，同时收集标题生成目录。
+ * 渲染结果经过 DOMPurify 净化，移除 script/事件属性/javascript: 链接等 XSS 载荷
  */
 export function renderMarkdownWithToc(content: string, maxLevel = 3): { html: string; toc: TocItem[] } {
-  const html = marked.parse(content || '') as string
+  const html = DOMPurify.sanitize(marked.parse(content || '') as string)
   const toc: TocItem[] = []
   const used = new Map<string, number>()
   const withIds = html.replace(/<h([1-6])>([\s\S]*?)<\/h\1>/g, (_match, levelStr: string, innerHtml: string) => {

@@ -56,7 +56,8 @@ public class ArticleService {
     // ========== 查询 ==========
 
     /**
-     * 文章列表（分页 + 标题搜索），返回前端约定的 page_obj 结构
+     * 文章列表（分页 + 标题搜索），返回前端约定的 page_obj 结构。
+     * 可见性过滤与分页在 SQL 层完成
      * <p>
      * 可见性：已删除文章任何人都不可见；已隐藏文章仅管理员和作者本人可见，其余文章所有人可见
      *
@@ -66,30 +67,15 @@ public class ArticleService {
      * @param isAdmin  当前用户是否管理员
      */
     public Map<String, Object> list(String search, int page, UUID userId, boolean isAdmin) {
-        List<Article> articles = (search == null || search.isBlank())
-                ? articleMapper.selectAll()
-                : articleMapper.selectByTitleContaining(search.trim());
+        String keyword = (search == null || search.isBlank()) ? null : search.trim();
 
-        // 过滤已删除文章；已隐藏文章仅管理员和作者本人可见
-        List<Article> visible = new ArrayList<>();
-        for (Article article : articles) {
-            if (Boolean.TRUE.equals(article.getIsDeleted())) {
-                continue;
-            }
-            if (Boolean.TRUE.equals(article.getIsHidden()) && !canViewHidden(article, userId, isAdmin)) {
-                continue;
-            }
-            visible.add(article);
-        }
-
-        // 内存分页
-        int totalPages = Math.max(1, (visible.size() + PAGE_SIZE - 1) / PAGE_SIZE);
+        long total = articleMapper.countVisible(keyword, userId, isAdmin);
+        int totalPages = (int) Math.max(1, (total + PAGE_SIZE - 1) / PAGE_SIZE);
         int currentPage = Math.clamp(page, 1, totalPages);
-        int fromIndex = (currentPage - 1) * PAGE_SIZE;
-        int toIndex = Math.min(fromIndex + PAGE_SIZE, visible.size());
+        int offset = (currentPage - 1) * PAGE_SIZE;
 
         List<Map<String, Object>> objectList = new ArrayList<>();
-        for (Article article : visible.subList(fromIndex, toIndex)) {
+        for (Article article : articleMapper.selectVisiblePage(keyword, userId, isAdmin, PAGE_SIZE, offset)) {
             objectList.add(toArticleMap(article, userId, isAdmin));
         }
 
