@@ -1,3 +1,5 @@
+import { useAuth } from '@/composables/useAuth'
+
 const API_BASE = '/api'
 
 interface RequestOptions {
@@ -73,7 +75,23 @@ export async function request<T = any>(url: string, options: RequestOptions = {}
   }
 
   const response = await fetch(`${API_BASE}${url}`, config)
-  const data = await response.json()
+
+  // 401 拦截：会话已过期（或未登录调用需登录接口）时清除本地登录状态，
+  // 导航栏等依赖 useAuth 的组件会自动恢复为未登录显示。
+  // 登录接口的 401 表示账号密码错误，不触发清除。
+  if (response.status === 401 && !url.startsWith('/user/login')) {
+    localStorage.removeItem('isAuthenticated')
+    localStorage.removeItem('user')
+    useAuth().setUser(null)
+  }
+
+  // Security 过滤器层返回的 401 可能没有 JSON body，解析失败时回退为 null
+  let data: any = null
+  try {
+    data = await response.json()
+  } catch {
+    data = null
+  }
 
   return {
     data,
@@ -152,4 +170,8 @@ export const commentApi = {
     request(`/comment/update/${commentIndexId}/`, { method: 'POST', body: { content } }),
   delete: (commentIndexId: number) =>
     request(`/comment/delete/${commentIndexId}/`, { method: 'POST' }),
+  hide: (commentIndexId: number) =>
+    request(`/comment/hide/${commentIndexId}/`, { method: 'POST' }),
+  unhide: (commentIndexId: number) =>
+    request(`/comment/unhide/${commentIndexId}/`, { method: 'POST' }),
 }

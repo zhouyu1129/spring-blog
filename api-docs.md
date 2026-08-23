@@ -509,7 +509,7 @@
 | article_page  | int  | 文章列表页码       |
 | comment_page  | int  | 评论列表页码       |
 
-> 每页 10 条。文章按 `created_at` 降序、相同 `index_id` 只保留最新版本；已删除和已隐藏的文章不展示。当前前端未传分页参数（始终取第 1 页），参数为前端后续分页预留。
+> 每页 10 条。文章按 `created_at` 降序、相同 `index_id` 只保留最新版本；已删除文章不展示；已隐藏文章仅管理员和作者本人可见（查看自己的主页时可见，带 `is_hidden: true` 标记）。当前前端未传分页参数（始终取第 1 页），参数为前端后续分页预留。
 
 **成功响应（200）：**
 
@@ -533,6 +533,7 @@
       {
         "index_id": 1,
         "title": "文章标题",
+        "is_hidden": false,
         "created_at": "2026-03-01T10:00:00Z",
         "updated_at": "2026-03-01T10:00:00Z",
         "content": "文章Markdown原文...",
@@ -555,6 +556,7 @@
         "content": "评论内容（Markdown原文）",
         "create_time": "2026-03-15T10:00:00Z",
         "update_time": "2026-03-15T10:00:00Z",
+        "is_hidden": false,
         "top": false,
         "author": {
           "id": "2",
@@ -572,7 +574,7 @@
 ```
 
 > 也可使用简化格式（`articles` / `comments` 替代 `page_obj.object_list`），前端兼容两种格式。
-> 评论模块后端暂未完成，当前 `comment_page_obj` 返回空列表（`num_pages: 1`）。
+> 评论按 `created_at` 降序、相同 `index_id` 只保留最新版本；已删除评论不展示；已隐藏评论仅管理员和评论作者本人可见（查看自己的主页时可见，带 `is_hidden: true` 标记）；所属文章已删除/已隐藏的评论不展示。
 
 ---
 
@@ -984,6 +986,7 @@
         "content": "评论原文内容（Markdown）",
         "create_time": "2026-03-15T10:00:00Z",
         "update_time": "2026-03-15T10:00:00Z",
+        "is_hidden": false,
         "top": false,
         "author": {
           "id": "2",
@@ -997,6 +1000,7 @@
 ```
 
 > 前端兼容 `res.data.page_obj?.object_list || res.data.comments`；评论 HTML 由前端从 `content` 渲染
+> 可见性：已删除评论任何人都不可见；已隐藏评论仅管理员和评论作者本人可见；已隐藏文章的评论仅管理员和文章作者可见
 
 ---
 
@@ -1078,12 +1082,66 @@
 | -------------- | ---- | ------- |
 | commentIndexId | int  | 评论 ID |
 
+> 删除为软删除（标记 `is_deleted`），删除后该评论对所有用户不可见，也无法再编辑
+
 **成功响应（200）：**
 
 ```json
 {
   "status": "success",
   "message": "评论已删除"
+}
+```
+
+---
+
+### 3.5 隐藏评论
+
+| 项目           | 内容                                    |
+| -------------- | --------------------------------------- |
+| **方法** | `POST`                                 |
+| **路径** | `/api/comment/hide/{commentIndexId}/`  |
+| **认证** | 需要登录（仅作者可隐藏）                |
+
+**路径参数：**
+
+| 参数           | 类型 | 说明    |
+| -------------- | ---- | ------- |
+| commentIndexId | int  | 评论 ID |
+
+> 隐藏后该评论仅管理员和评论作者本人可见（返回 `is_hidden: true`）
+
+**成功响应（200）：**
+
+```json
+{
+  "status": "success",
+  "message": "评论已隐藏"
+}
+```
+
+---
+
+### 3.6 取消隐藏评论
+
+| 项目           | 内容                                      |
+| -------------- | ----------------------------------------- |
+| **方法** | `POST`                                   |
+| **路径** | `/api/comment/unhide/{commentIndexId}/`  |
+| **认证** | 需要登录（仅作者可取消隐藏）              |
+
+**路径参数：**
+
+| 参数           | 类型 | 说明    |
+| -------------- | ---- | ------- |
+| commentIndexId | int  | 评论 ID |
+
+**成功响应（200）：**
+
+```json
+{
+  "status": "success",
+  "message": "评论已取消隐藏"
 }
 ```
 
@@ -1127,6 +1185,8 @@
 | content     | String   | 评论内容（Markdown原文）        |
 | create_time | DateTime | 创建时间                        |
 | update_time | DateTime | 最后更新时间                    |
+| is_hidden   | Boolean  | 是否隐藏，默认 false            |
+| is_deleted  | Boolean  | 是否删除（软删除），默认 false  |
 | top         | Boolean  | 是否置顶，默认 false            |
 | author_id   | Long     | 作者 ID（外键关联 User）        |
 | article_id  | Long     | 所属文章 ID（外键关联 Article） |
@@ -1200,6 +1260,8 @@
 | 24 | POST | `/api/comment/{articleIndexId}/create/` | 创建评论 | 是         |
 | 25 | POST | `/api/comment/update/{commentIndexId}/` | 修改评论 | 是（作者） |
 | 26 | POST | `/api/comment/delete/{commentIndexId}/` | 删除评论 | 是（作者） |
+| 27 | POST | `/api/comment/hide/{commentIndexId}/`   | 隐藏评论 | 是（作者） |
+| 28 | POST | `/api/comment/unhide/{commentIndexId}/` | 取消隐藏评论 | 是（作者） |
 
 ### 系统接口
 

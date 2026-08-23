@@ -118,6 +118,7 @@ onMounted(fetchProfile)
                   <router-link :to="{ name: 'article-detail', params: { indexId: article.index_id } }" class="hover:text-emerald-600 transition-colors">
                     {{ article.title }}
                   </router-link>
+                  <span v-if="article.is_hidden" class="ml-2 align-middle text-xs font-normal bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">已隐藏</span>
                 </h5>
                 <p class="text-zinc-400 text-xs mb-2">
                   {{ formatDate(article.created_at) }}
@@ -149,6 +150,9 @@ onMounted(fetchProfile)
               </div>
               <span v-if="comment.top" class="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full flex items-center gap-1">
                 置顶
+              </span>
+              <span v-if="comment.is_hidden" class="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">
+                已隐藏
               </span>
             </div>
             <div class="text-sm text-zinc-600">

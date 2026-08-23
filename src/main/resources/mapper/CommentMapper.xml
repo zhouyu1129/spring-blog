@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.blog.mapper.CommentMapper">
+
+    <!-- 根据 index_id 查询评论，只保留 updated_at 最新的一个版本 -->
+    <select id="selectByIndexId" resultType="org.example.blog.dao.Comment">
+        SELECT id, index_id, content, author_id, article_index_id, is_deleted, is_hidden, created_at, updated_at
+        FROM comments
+        WHERE index_id = #{indexId}
+        ORDER BY updated_at DESC
+        LIMIT 1
+    </select>
+
+    <!-- 查询文章的评论列表：同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
+    <select id="selectByArticleIndexId" resultType="org.example.blog.dao.Comment">
+        SELECT t.id, t.index_id, t.content, t.author_id, t.article_index_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
+        FROM (
+            SELECT DISTINCT ON (index_id) id, index_id, content, author_id, article_index_id, is_deleted, is_hidden, created_at, updated_at
+            FROM comments
+            WHERE article_index_id = #{articleIndexId}
+            ORDER BY index_id, updated_at DESC
+        ) t
+        ORDER BY t.created_at DESC
+    </select>
+
+    <!-- 查询作者的评论列表：同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
+    <select id="selectByAuthorId" resultType="org.example.blog.dao.Comment">
+        SELECT t.id, t.index_id, t.content, t.author_id, t.article_index_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
+        FROM (
+            SELECT DISTINCT ON (index_id) id, index_id, content, author_id, article_index_id, is_deleted, is_hidden, created_at, updated_at
+            FROM comments
+            WHERE author_id = #{authorId}
+            ORDER BY index_id, updated_at DESC
+        ) t
+        ORDER BY t.created_at DESC
+    </select>
+
+    <!-- 插入评论：index_id 为 null（新评论）时由 SERIAL 序列自动生成，指定时（修改评论）沿用；
+         自动查找相同 index_id 的已有记录并继承 created_at，找不到则 created_at = updated_at；
+         旧评论（修改）沿用上一版本的 is_hidden，新评论使用 DEFAULT -->
+    <insert id="insert">
+        INSERT INTO comments (id, index_id, content, author_id, article_index_id, is_hidden, created_at, updated_at)
+        VALUES (
+                #{id},
+                <choose>
+                    <when test="indexId != null">#{indexId}</when>
+                    <otherwise>DEFAULT</otherwise>
+                </choose>,
+                #{content}, #{authorId}, #{articleIndexId},
+                <choose>
+                    <when test="indexId != null">
+                        (SELECT c.is_hidden
+                        FROM comments c
+                        WHERE c.index_id = #{indexId}
+                        LIMIT 1)
+                    </when>
+                    <otherwise>DEFAULT</otherwise>
+                </choose>,
+                COALESCE(
+                    (SELECT c.created_at
+                    FROM comments c
+                    WHERE c.index_id = #{indexId}
+                    LIMIT 1),
+                    #{updatedAt}
+                ),
+                #{updatedAt}
+               )
+    </insert>
+
+    <!-- 设置一个评论为已删除（软删除，只标记最新版本记录） -->
+    <update id="setDeleted">
+        UPDATE comments SET is_deleted = TRUE WHERE id = #{id}
+    </update>
+
+    <!-- 设置一个评论为未删除 -->
+    <update id="setNotDeleted">
+        UPDATE comments SET is_deleted = FALSE WHERE id = #{id}
+    </update>
+
+    <!-- 设置一个评论为已隐藏（只标记最新版本记录） -->
+    <update id="setHidden">
+        UPDATE comments SET is_hidden = TRUE WHERE id = #{id}
+    </update>
+
+    <!-- 设置一个评论为未隐藏 -->
+    <update id="setNotHidden">
+        UPDATE comments SET is_hidden = FALSE WHERE id = #{id}
+    </update>
+
+</mapper>

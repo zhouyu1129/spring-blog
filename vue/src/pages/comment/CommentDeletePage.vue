@@ -32,7 +32,7 @@ async function handleDelete() {
       </div>
       <div class="p-6">
         <div class="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-md mb-6 text-sm">
-          <strong>警告：</strong>此操作将删除评论的所有版本，且无法撤销！
+          <strong>警告：</strong>删除后该评论将对所有人不可见（包括您自己），且无法在前端恢复！
         </div>
         <div class="flex justify-between">
           <button @click="router.back()" class="inline-flex items-center gap-1.5 bg-zinc-200 text-zinc-700 px-5 py-2.5 rounded-lg hover:bg-zinc-300 transition-colors">

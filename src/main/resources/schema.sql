@@ -23,15 +23,15 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- 文章表（index_id 用序列生成：新文章由 SERIAL 自动分配，新版本沿用同一 index_id）
 CREATE TABLE IF NOT EXISTS articles (
-    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id         UUID PRIMARY KEY   DEFAULT gen_random_uuid(),
     index_id   SERIAL,
     title      VARCHAR(64),
     content    VARCHAR,
     author_id  UUID REFERENCES users (id) ON DELETE CASCADE,
-    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
-    is_hidden  BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP        DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP        DEFAULT CURRENT_TIMESTAMP
+    is_deleted BOOLEAN   NOT NULL DEFAULT FALSE,
+    is_hidden  BOOLEAN   NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_article_index_id ON articles (index_id);
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS images (
     title      VARCHAR(64),
     path       VARCHAR UNIQUE,
     author_id  UUID REFERENCES users (id) ON DELETE CASCADE,
-    created_at TIMESTAMP        DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP        DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 -- 图片引用表
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS files (
     title      VARCHAR(64),
     path       VARCHAR UNIQUE,
     author_id  UUID REFERENCES users (id) ON DELETE CASCADE,
-    created_at TIMESTAMP        DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP        DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 -- 文件引用表
@@ -66,6 +66,19 @@ CREATE TABLE IF NOT EXISTS file_quote (
     article_id UUID REFERENCES articles (id) ON DELETE CASCADE,
     file_id    UUID REFERENCES files (id) ON DELETE CASCADE,
     PRIMARY KEY (article_id, file_id)
+);
+
+-- 评论表
+CREATE TABLE IF NOT EXISTS comments (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    index_id         SERIAL,
+    content          VARCHAR,
+    author_id        UUID REFERENCES users (id),
+    article_index_id INTEGER, -- 无法使用外键约束，因为article_index_id不唯一
+    is_hidden        BOOLEAN          DEFAULT FALSE             NOT NULL,
+    is_deleted       BOOLEAN          DEFAULT FALSE             NOT NULL,
+    created_at       TIMESTAMP        DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at       TIMESTAMP        DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 -- 角色表

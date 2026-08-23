@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { MessageSquare, ArrowLeft, Eye, Pin, Edit, Trash2 } from 'lucide-vue-next'
+import { MessageSquare, ArrowLeft, Eye, EyeOff, Pin, Edit, Trash2 } from 'lucide-vue-next'
 import Pagination from '@/components/Pagination.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { commentApi } from '@/api'
@@ -21,6 +21,7 @@ const totalPages = ref(1)
 const newComment = ref('')
 const loading = ref(false)
 const submitting = ref(false)
+const togglingHideId = ref<number | null>(null)
 
 function formatDate(dateStr: string) {
   if (!dateStr) return ''
@@ -60,6 +61,26 @@ async function handleSubmit() {
     addMessage('评论发布失败', 'error')
   } finally {
     submitting.value = false
+  }
+}
+
+// 隐藏/取消隐藏评论（仅评论作者，由后端校验）
+async function handleToggleHide(comment: any) {
+  togglingHideId.value = comment.index_id
+  try {
+    const res = comment.is_hidden
+      ? await commentApi.unhide(comment.index_id)
+      : await commentApi.hide(comment.index_id)
+    if (res.ok) {
+      comment.is_hidden = !comment.is_hidden
+      addMessage(comment.is_hidden ? '评论已隐藏，仅您和管理员可见' : '评论已取消隐藏', 'success')
+    } else {
+      addMessage(res.data?.message || '操作失败', 'error')
+    }
+  } catch (e) {
+    addMessage('操作失败', 'error')
+  } finally {
+    togglingHideId.value = null
   }
 }
 
@@ -115,8 +136,13 @@ onMounted(() => fetchComments())
                   {{ formatDate(comment.create_time) }}
                   <template v-if="comment.create_time !== comment.update_time"> | 编辑于 {{ formatDate(comment.update_time) }}</template>
                 </span>
+                <span v-if="comment.is_hidden" class="ml-2 align-middle text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">已隐藏</span>
               </div>
               <div v-if="isAuthenticated && user?.id === comment.author?.id" class="flex gap-1">
+                <button @click="handleToggleHide(comment)" :disabled="togglingHideId === comment.index_id" :title="comment.is_hidden ? '取消隐藏' : '隐藏'" class="p-1.5 text-zinc-500 hover:bg-zinc-100 rounded disabled:opacity-50">
+                  <EyeOff v-if="!comment.is_hidden" :size="14" />
+                  <Eye v-else :size="14" />
+                </button>
                 <router-link :to="{ name: 'comment-edit', params: { commentIndexId: comment.index_id } }" class="p-1.5 text-amber-600 hover:bg-amber-50 rounded">
                   <Edit :size="14" />
                 </router-link>

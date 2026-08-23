@@ -14,7 +14,17 @@ interface User {
   last_login?: string
 }
 
-const user = ref<User | null>(null)
+// 刷新页面后从 localStorage 恢复登录用户（登录/注册成功时写入，登出时清除）
+function loadStoredUser(): User | null {
+  try {
+    const raw = localStorage.getItem('user')
+    return raw ? (JSON.parse(raw) as User) : null
+  } catch {
+    return null
+  }
+}
+
+const user = ref<User | null>(loadStoredUser())
 const isAuthenticated = computed(() => !!user.value)
 
 export function useAuth() {

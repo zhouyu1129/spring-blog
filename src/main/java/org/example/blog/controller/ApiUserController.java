@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.example.blog.dao.Article;
 import org.example.blog.dao.User;
 import org.example.blog.mapper.ArticleMapper;
+import org.example.blog.service.CommentService;
 import org.example.blog.service.CustomUserDetails;
 import org.example.blog.service.EmailService;
 import org.example.blog.service.UserService;
@@ -38,6 +39,7 @@ public class ApiUserController {
     private final AuthenticationManager authenticationManager;
     private final EmailService emailService;
     private final ArticleMapper articleMapper;
+    private final CommentService commentService;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -47,12 +49,13 @@ public class ApiUserController {
 
     public ApiUserController(UserService userService, PasswordEncoder passwordEncoder,
                              AuthenticationManager authenticationManager, EmailService emailService,
-                             ArticleMapper articleMapper) {
+                             ArticleMapper articleMapper, CommentService commentService) {
         this.userService = userService;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.emailService = emailService;
         this.articleMapper = articleMapper;
+        this.commentService = commentService;
     }
 
     // ========== 登录 ==========
@@ -401,7 +404,8 @@ public class ApiUserController {
     @GetMapping("/user/{userId}")
     public ResponseEntity<?> getUserProfile(@PathVariable String userId,
                                             @RequestParam(defaultValue = "1") int article_page,
-                                            @RequestParam(defaultValue = "1") int comment_page) {
+                                            @RequestParam(defaultValue = "1") int comment_page,
+                                            @AuthenticationPrincipal CustomUserDetails currentUser) {
         User targetUser;
         try {
             targetUser = userService.getById(java.util.UUID.fromString(userId));
@@ -413,19 +417,22 @@ public class ApiUserController {
             return ResponseEntity.status(404).body(Map.of("status", "error", "message", "用户不存在"));
         }
 
+        // 已隐藏文章仅管理员和作者本人可见（与全站文章列表一致）
+        boolean viewerIsAdmin = currentUser != null && currentUser.isAdmin();
+        boolean viewerIsOwner = currentUser != null && currentUser.getId().equals(targetUser.getId());
+        boolean canViewHidden = viewerIsAdmin || viewerIsOwner;
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("target_user", toPublicProfileMap(targetUser));
-        // 文章：按作者查询最新版本，过滤已删除文章（隐藏文章他人不可见）
+        // 文章：按作者查询最新版本，过滤已删除文章；隐藏文章仅本人/管理员可见
         List<Article> articles = articleMapper.selectByAuthorId(targetUser.getId()).stream()
                 .filter(a -> !Boolean.TRUE.equals(a.getIsDeleted()))
-                .filter(a -> !Boolean.TRUE.equals(a.getIsHidden()))
+                .filter(a -> !Boolean.TRUE.equals(a.getIsHidden()) || canViewHidden)
                 .toList();
         result.put("article_page_obj", buildArticlePage(articles, article_page, targetUser));
-        // TODO: 评论模块完成后填充 comment_page_obj
-        result.put("comment_page_obj", Map.of(
-                "number", 1,
-                "paginator", Map.of("num_pages", 1),
-                "object_list", java.util.List.of()));
+        // 评论：按作者查询最新版本；隐藏评论仅本人/管理员可见，所属文章已删除/已隐藏的评论不展示
+        result.put("comment_page_obj", commentService.listByAuthor(targetUser.getId(), comment_page,
+                currentUser != null ? currentUser.getId() : null, viewerIsAdmin));
 
         return ResponseEntity.ok(result);
     }
@@ -459,6 +466,7 @@ public class ApiUserController {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("index_id", article.getIndexId());
         map.put("title", article.getTitle());
+        map.put("is_hidden", Boolean.TRUE.equals(article.getIsHidden()));
         map.put("created_at", article.getCreatedAt() != null ? article.getCreatedAt().toString() : null);
         map.put("updated_at", article.getUpdatedAt() != null ? article.getUpdatedAt().toString() : null);
         map.put("content", article.getContent());
