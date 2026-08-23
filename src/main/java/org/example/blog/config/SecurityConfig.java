@@ -4,6 +4,7 @@ import org.example.blog.service.CustomUserDetailsService;
 import org.jspecify.annotations.NullMarked;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -65,7 +66,10 @@ public class SecurityConfig {
                 .requestMatchers("/css/**", "/js/**", "/images/**", "/media/**", "/static/**").permitAll()
                 // 其余 /api/user/** 需要认证
                 .requestMatchers("/api/user/**").authenticated()
-                // 管理员接口
+                // 管理员后端 API：查询（GET）需员工或管理员，修改（写操作）仅管理员
+                .requestMatchers(HttpMethod.GET, "/api/admin/**").hasAnyRole("STAFF", "ADMIN")
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                // 管理员接口（遗留页面路径）
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 .requestMatchers("/staff/**").hasAnyRole("STAFF", "ADMIN")
                 // 其余请求
@@ -136,7 +140,7 @@ public class SecurityConfig {
         config.setAllowedOrigins(List.of(
                 "http://localhost:5173", "http://127.0.0.1:5173",
                 "http://localhost:3000", "http://127.0.0.1:3000"));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);

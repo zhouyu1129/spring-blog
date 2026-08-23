@@ -47,6 +47,21 @@ public interface ArticleMapper {
     long countVisibleByAuthor(@Param("authorId") UUID authorId,
                               @Param("canViewHidden") boolean canViewHidden);
 
+    /**
+     * 管理员后端：分页查询全部文章（含已删除/已隐藏，最新版本），按 created_at 降序。
+     * keyword 非空时按标题模糊匹配；deleted/hidden 为 null 时不过滤该状态，否则只保留匹配值
+     */
+    List<Article> selectAdminPage(@Param("keyword") String keyword,
+                                  @Param("deleted") Boolean deleted,
+                                  @Param("hidden") Boolean hidden,
+                                  @Param("limit") int limit,
+                                  @Param("offset") int offset);
+
+    /** 管理员后端：统计全部文章总数（过滤条件与 selectAdminPage 一致） */
+    long countAdmin(@Param("keyword") String keyword,
+                    @Param("deleted") Boolean deleted,
+                    @Param("hidden") Boolean hidden);
+
     /** 插入文章，自动查询index_id相同的对象并设置created_at，若没有则设置created_at为updated_at
       * 使用此接口插入时is_deleted永远为false，旧文章（indexId不为null）的is_hidden沿用上一版本，新文章使用DEFAULT
       * indexId 为 null（新文章）时由数据库序列（SERIAL）自动生成，指定时（保存新版本）沿用 */

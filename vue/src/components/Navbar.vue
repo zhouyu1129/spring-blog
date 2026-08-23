@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Home, BookOpen, Info, Search, LogIn, UserPlus, User, LogOut } from 'lucide-vue-next'
+import { Home, BookOpen, Info, Search, LogIn, UserPlus, User, LogOut, ShieldCheck } from 'lucide-vue-next'
 import { useAuth } from '@/composables/useAuth'
 import { useMessages } from '@/composables/useMessages'
 import { authApi } from '@/api'
 
 const router = useRouter()
-const { isAuthenticated, user, setUser } = useAuth()
+const { isAuthenticated, isStaff, user, setUser } = useAuth()
 const { addMessage } = useMessages()
 const searchQuery = ref('')
 const mobileMenuOpen = ref(false)
@@ -52,6 +52,9 @@ async function handleLogout() {
           </router-link>
           <router-link to="/about" class="flex items-center gap-1 hover:text-emerald-400 transition-colors">
             <Info :size="16" /> 关于
+          </router-link>
+          <router-link v-if="isStaff" to="/admin" class="flex items-center gap-1 text-amber-400 hover:text-amber-300 transition-colors">
+            <ShieldCheck :size="16" /> 后台管理
           </router-link>
         </div>
 
@@ -106,6 +109,9 @@ async function handleLogout() {
         </router-link>
         <router-link to="/about" class="block py-2 hover:text-emerald-400" @click="mobileMenuOpen = false">
           <Info :size="16" class="inline mr-1" /> 关于
+        </router-link>
+        <router-link v-if="isStaff" to="/admin" class="block py-2 text-amber-400 hover:text-amber-300" @click="mobileMenuOpen = false">
+          <ShieldCheck :size="16" class="inline mr-1" /> 后台管理
         </router-link>
         <form @submit.prevent="handleSearch" class="flex">
           <input v-model="searchQuery" type="search" placeholder="搜索..." class="flex-1 bg-zinc-800 text-white text-sm px-3 py-1.5 rounded-l-md border border-zinc-700" />

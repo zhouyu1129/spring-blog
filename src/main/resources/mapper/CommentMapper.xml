@@ -88,6 +88,63 @@
           AND a.is_hidden = FALSE
     </select>
 
+    <!-- 管理员后端：分页查询全部评论（含已删除/已隐藏，最新版本），按 created_at 降序。
+         LEFT JOIN 文章最新版本取标题（管理员可见全部数据，文章不存在时标题为 null）；
+         keyword 过滤放在子查询内；deleted/hidden 过滤放在子查询外（按最新版本状态过滤） -->
+    <select id="selectAdminPage" resultType="org.example.blog.dao.Comment">
+        SELECT t.id, t.index_id, t.content, t.author_id, t.article_index_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at,
+               a.title AS article_title
+        FROM (
+            SELECT DISTINCT ON (index_id) id, index_id, content, author_id, article_index_id, is_deleted, is_hidden, created_at, updated_at
+            FROM comments
+            <where>
+                <if test="keyword != null and keyword != ''">
+                    content ILIKE CONCAT('%', #{keyword}, '%')
+                </if>
+            </where>
+            ORDER BY index_id, updated_at DESC
+        ) t
+        LEFT JOIN (
+            SELECT DISTINCT ON (index_id) index_id, title
+            FROM articles
+            ORDER BY index_id, updated_at DESC
+        ) a ON a.index_id = t.article_index_id
+        <where>
+            <if test="deleted != null and deleted">AND t.is_deleted = TRUE</if>
+            <if test="deleted != null and !deleted">AND t.is_deleted = FALSE</if>
+            <if test="hidden != null and hidden">AND t.is_hidden = TRUE</if>
+            <if test="hidden != null and !hidden">AND t.is_hidden = FALSE</if>
+        </where>
+        ORDER BY t.created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 管理员后端：统计全部评论总数（过滤条件与 selectAdminPage 一致） -->
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT DISTINCT ON (index_id) id, is_deleted, is_hidden
+            FROM comments
+            <where>
+                <if test="keyword != null and keyword != ''">
+                    content ILIKE CONCAT('%', #{keyword}, '%')
+                </if>
+            </where>
+            ORDER BY index_id, updated_at DESC
+        ) t
+        <where>
+            <if test="deleted != null and deleted">AND t.is_deleted = TRUE</if>
+            <if test="deleted != null and !deleted">AND t.is_deleted = FALSE</if>
+            <if test="hidden != null and hidden">AND t.is_hidden = TRUE</if>
+            <if test="hidden != null and !hidden">AND t.is_hidden = FALSE</if>
+        </where>
+    </select>
+
+    <!-- 物理删除某用户的所有评论（管理员删除用户时调用） -->
+    <delete id="deleteByAuthorId">
+        DELETE FROM comments WHERE author_id = #{authorId}
+    </delete>
+
     <!-- 插入评论：index_id 为 null（新评论）时由 SERIAL 序列自动生成，指定时（修改评论）沿用；
          自动查找相同 index_id 的已有记录并继承 created_at，找不到则 created_at = updated_at；
          旧评论（修改）沿用上一版本的 is_hidden，新评论使用 DEFAULT -->

@@ -175,3 +175,49 @@ export const commentApi = {
   unhide: (commentIndexId: number) =>
     request(`/comment/unhide/${commentIndexId}/`, { method: 'POST' }),
 }
+
+// Admin API（管理员后端：查询需 staff/admin，修改仅 admin，后端强制校验）
+export const adminApi = {
+  // 用户管理
+  listUsers: (params?: { search?: string; page?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.search) query.set('search', params.search)
+    if (params?.page) query.set('page', String(params.page))
+    const qs = query.toString()
+    return request(`/admin/users${qs ? '?' + qs : ''}`)
+  },
+  getUser: (id: string) =>
+    request(`/admin/users/${id}`),
+  createUser: (data: Record<string, any>) =>
+    request('/admin/users', { method: 'POST', body: data }),
+  updateUser: (id: string, data: Record<string, any>) =>
+    request(`/admin/users/${id}`, { method: 'PATCH', body: data }),
+  deleteUser: (id: string) =>
+    request(`/admin/users/${id}`, { method: 'DELETE' }),
+  // 文章管理
+  listArticles: (params?: { search?: string; deleted?: boolean; hidden?: boolean; page?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.search) query.set('search', params.search)
+    if (params?.deleted !== undefined) query.set('deleted', String(params.deleted))
+    if (params?.hidden !== undefined) query.set('hidden', String(params.hidden))
+    if (params?.page) query.set('page', String(params.page))
+    const qs = query.toString()
+    return request(`/admin/articles${qs ? '?' + qs : ''}`)
+  },
+  getArticle: (indexId: number) =>
+    request(`/admin/articles/${indexId}`),
+  updateArticle: (indexId: number, data: Record<string, any>) =>
+    request(`/admin/articles/${indexId}`, { method: 'PATCH', body: data }),
+  // 评论管理
+  listComments: (params?: { search?: string; deleted?: boolean; hidden?: boolean; page?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.search) query.set('search', params.search)
+    if (params?.deleted !== undefined) query.set('deleted', String(params.deleted))
+    if (params?.hidden !== undefined) query.set('hidden', String(params.hidden))
+    if (params?.page) query.set('page', String(params.page))
+    const qs = query.toString()
+    return request(`/admin/comments${qs ? '?' + qs : ''}`)
+  },
+  updateComment: (commentIndexId: number, data: Record<string, any>) =>
+    request(`/admin/comments/${commentIndexId}`, { method: 'PATCH', body: data }),
+}

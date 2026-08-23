@@ -91,6 +91,52 @@
         </if>
     </select>
 
+    <!-- 管理员后端：分页查询全部文章（含已删除/已隐藏，最新版本），按 created_at 降序。
+         keyword 过滤放在子查询内（与全站搜索一致）；deleted/hidden 过滤放在子查询外，
+         保证按「最新版本」的状态过滤（避免旧版本状态干扰 DISTINCT ON 的取版本） -->
+    <select id="selectAdminPage" resultType="org.example.blog.dao.Article">
+        SELECT t.id, t.index_id, t.title, t.content, t.author_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
+        FROM (
+            SELECT DISTINCT ON (index_id) id, index_id, title, content, author_id, is_deleted, is_hidden, created_at, updated_at
+            FROM articles
+            <where>
+                <if test="keyword != null and keyword != ''">
+                    title ILIKE CONCAT('%', #{keyword}, '%')
+                </if>
+            </where>
+            ORDER BY index_id, updated_at DESC
+        ) t
+        <where>
+            <if test="deleted != null and deleted">AND t.is_deleted = TRUE</if>
+            <if test="deleted != null and !deleted">AND t.is_deleted = FALSE</if>
+            <if test="hidden != null and hidden">AND t.is_hidden = TRUE</if>
+            <if test="hidden != null and !hidden">AND t.is_hidden = FALSE</if>
+        </where>
+        ORDER BY t.created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 管理员后端：统计全部文章总数（过滤条件与 selectAdminPage 一致） -->
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT DISTINCT ON (index_id) id, is_deleted, is_hidden
+            FROM articles
+            <where>
+                <if test="keyword != null and keyword != ''">
+                    title ILIKE CONCAT('%', #{keyword}, '%')
+                </if>
+            </where>
+            ORDER BY index_id, updated_at DESC
+        ) t
+        <where>
+            <if test="deleted != null and deleted">AND t.is_deleted = TRUE</if>
+            <if test="deleted != null and !deleted">AND t.is_deleted = FALSE</if>
+            <if test="hidden != null and hidden">AND t.is_hidden = TRUE</if>
+            <if test="hidden != null and !hidden">AND t.is_hidden = FALSE</if>
+        </where>
+    </select>
+
     <!-- 插入文章：index_id 为 null（新文章）时由 SERIAL 序列自动生成，指定时（保存新版本）沿用；
          自动查找相同 index_id 的已有记录并继承 created_at，找不到则 created_at = updated_at -->
     <insert id="insert">

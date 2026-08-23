@@ -21,6 +21,7 @@ import ResetPasswordPage from '@/pages/user/ResetPasswordPage.vue'
 import UserProfilePage from '@/pages/user/UserProfilePage.vue'
 import EmailVerifyPage from '@/pages/user/EmailVerifyPage.vue'
 import EmailVerifyResultPage from '@/pages/user/EmailVerifyResultPage.vue'
+import AdminPage from '@/pages/admin/AdminPage.vue'
 import NotFoundPage from '@/pages/NotFoundPage.vue'
 
 const routes = [
@@ -46,6 +47,7 @@ const routes = [
   { path: '/user/:userId', name: 'user-profile', component: UserProfilePage, props: true },
   { path: '/user/verify-email', name: 'verify-email', component: EmailVerifyPage, meta: { requiresAuth: true, allowUnverified: true } },
   { path: '/user/verify-email/result', name: 'verify-email-result', component: EmailVerifyResultPage },
+  { path: '/admin', name: 'admin', component: AdminPage, meta: { requiresAuth: true } },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFoundPage },
 ]
 

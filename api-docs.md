@@ -1147,9 +1147,275 @@
 
 ---
 
-## 四、数据模型
+## 四、管理员模块（Admin）
 
-### 4.1 User（用户）
+> **访问控制**：`/api/admin/**` 下所有接口中——
+> - **查询（GET）**：需当前用户 `is_staff` 或 `is_admin` 为 `true`
+> - **修改（POST / PATCH / DELETE）**：仅 `is_admin` 为 `true`
+> - 未登录或权限不足返回 `403`
+>
+> 本模块遵循 RESTful 风格：分页用查询参数（`?page=`），部分更新用 `PATCH`。
+
+### 4.1 用户列表
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `GET`                                           |
+| **路径** | `/api/admin/users`                              |
+| **认证** | 需要登录（`is_staff` 或 `is_admin`）            |
+
+**查询参数：**
+
+| 参数   | 类型 | 说明                                                      |
+| ------ | ---- | --------------------------------------------------------- |
+| search | text | 可选，按用户名/昵称/邮箱/学号模糊匹配                     |
+| page   | int  | 可选，页码，默认 1，每页 10 条                             |
+
+**成功响应（200）：**
+
+```json
+{
+  "page_obj": {
+    "number": 1,
+    "paginator": { "num_pages": 1 },
+    "object_list": [
+      {
+        "id": "3f2a...",
+        "username": "alice",
+        "nickname": "Alice",
+        "real_name": null,
+        "gender": null,
+        "email": "alice@example.com",
+        "email_verified": true,
+        "mobile": null,
+        "student_number": "2026000001",
+        "is_staff": false,
+        "is_admin": false,
+        "is_enabled": true,
+        "created_at": "2026-08-23T10:00:00",
+        "last_logged_at": null,
+        "roles": []
+      }
+    ]
+  }
+}
+```
+
+> 用户结构不含 `password`。
+
+### 4.2 用户详情
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `GET`                                           |
+| **路径** | `/api/admin/users/{id}`                         |
+| **认证** | 需要登录（`is_staff` 或 `is_admin`）            |
+
+**路径参数：**
+
+| 参数 | 类型   | 说明    |
+| ---- | ------ | ------- |
+| id   | string | 用户 ID（UUID） |
+
+**成功响应（200）：** `{ "user": { ...同列表条目结构 } }`；用户不存在返回 `404`。
+
+### 4.3 创建用户
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `POST`                                          |
+| **路径** | `/api/admin/users`                              |
+| **认证** | 需要登录（仅 `is_admin`）                       |
+
+**请求体（JSON）：**
+
+| 字段           | 类型    | 必填 | 说明                                          |
+| -------------- | ------- | ---- | --------------------------------------------- |
+| username       | String  | 是   | 3-40 位，仅字母数字下划线连字符，非纯数字，唯一 |
+| email          | String  | 是   | 邮箱格式，唯一                                 |
+| student_number | String  | 是   | 10 位数字，唯一                                 |
+| password       | String  | 是   | 6-128 位（明文传输，后端加密存储）              |
+| nickname       | String  | 否   | 默认同 username                                |
+| real_name      | String  | 否   |                                                |
+| mobile         | String  | 否   |                                                |
+| gender         | String  | 否   | male / female / other                          |
+| email_verified | Boolean | 否   | 默认 false                                     |
+| is_staff       | Boolean | 否   | 默认 false                                     |
+| is_admin       | Boolean | 否   | 默认 false                                     |
+| is_enabled     | Boolean | 否   | 默认 true                                      |
+
+**成功响应（200）：** `{ "user": { ... } }`；格式不合法或字段重复返回 `400`。
+
+### 4.4 编辑用户
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `PATCH`                                         |
+| **路径** | `/api/admin/users/{id}`                         |
+| **认证** | 需要登录（仅 `is_admin`）                       |
+
+**请求体（JSON，部分更新）：** 同 4.3 的字段均可选，仅提交需要修改的字段（`username` 可修改，需保持唯一）。
+
+**约束：**
+
+- 不能取消自己的 `is_admin`（防止锁死）→ `400`
+- 不能禁用自己的 `is_enabled` → `400`
+- 邮箱/学号/用户名与其他用户重复 → `400`
+
+**成功响应（200）：** `{ "user": { ...更新后结构 } }`。
+
+### 4.5 删除用户
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `DELETE`                                        |
+| **路径** | `/api/admin/users/{id}`                         |
+| **认证** | 需要登录（仅 `is_admin`）                       |
+
+**约束：**
+
+- 不能删除自己的账号 → `400`
+- 物理删除，**连同该用户的全部文章与评论一并删除**（不可恢复）
+
+**成功响应（200）：**
+
+```json
+{ "status": "success", "message": "用户及其文章、评论已删除" }
+```
+
+### 4.6 文章列表
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `GET`                                           |
+| **路径** | `/api/admin/articles`                           |
+| **认证** | 需要登录（`is_staff` 或 `is_admin`）            |
+
+**查询参数：**
+
+| 参数    | 类型    | 说明                                                             |
+| ------- | ------- | ---------------------------------------------------------------- |
+| search  | text    | 可选，按标题模糊匹配                                             |
+| deleted | Boolean | 可选，`true` 只看已删除，`false` 只看未删除，缺省为全部           |
+| hidden  | Boolean | 可选，`true` 只看已隐藏，`false` 只看未隐藏，缺省为全部           |
+| page    | int     | 可选，页码，默认 1，每页 10 条                                    |
+
+> 与公开文章列表不同：**包含已删除和已隐藏文章**，每条带 `is_deleted` / `is_hidden` 状态标志与 `author` 摘要。
+
+**成功响应（200）：**
+
+```json
+{
+  "page_obj": {
+    "number": 1,
+    "paginator": { "num_pages": 1 },
+    "object_list": [
+      {
+        "index_id": 1,
+        "title": "标题",
+        "author": { "id": "3f2a...", "username": "alice", "nickname": "Alice" },
+        "is_deleted": false,
+        "is_hidden": false,
+        "created_at": "2026-08-23T10:00:00",
+        "updated_at": "2026-08-23T10:00:00"
+      }
+    ]
+  }
+}
+```
+
+### 4.7 文章详情
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `GET`                                           |
+| **路径** | `/api/admin/articles/{indexId}`                 |
+| **认证** | 需要登录（`is_staff` 或 `is_admin`）            |
+
+**成功响应（200）：** 在 4.6 条目结构基础上增加 `content`（正文）、`images` 和 `files`（图片/文件列表）；文章不存在返回 `404`。
+
+### 4.8 编辑文章
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `PATCH`                                         |
+| **路径** | `/api/admin/articles/{indexId}`                 |
+| **认证** | 需要登录（仅 `is_admin`）                       |
+
+**请求体（JSON，部分更新）：**
+
+| 字段       | 类型    | 说明                                                         |
+| ---------- | ------- | ------------------------------------------------------------ |
+| title      | String  | 修改标题（与 content 一起生成新版本，作者不变）               |
+| content    | String  | 修改正文（生成新版本，图片/文件关联完整保留）                 |
+| is_hidden  | Boolean | `true` 隐藏 / `false` 取消隐藏（作用于最新版本）              |
+| is_deleted | Boolean | `true` 软删除 / `false` **恢复已删除文章**（作用于最新版本）   |
+
+> 四个字段均可选，至少提供一个。仅修改标题/内容时，文章原隐藏/删除状态保持不变。
+
+**成功响应（200）：** `{ "article": { ...详情结构 } }`。
+
+### 4.9 评论列表
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `GET`                                           |
+| **路径** | `/api/admin/comments`                           |
+| **认证** | 需要登录（`is_staff` 或 `is_admin`）            |
+
+**查询参数：** `search`（按内容匹配）、`deleted`、`hidden`、`page`，含义同 4.6。
+
+> 包含已删除和已隐藏评论，每条带 `author` 摘要、所属文章 `article_index_id` 与 `article_title`。
+
+**成功响应（200）：**
+
+```json
+{
+  "page_obj": {
+    "number": 1,
+    "paginator": { "num_pages": 1 },
+    "object_list": [
+      {
+        "index_id": 1,
+        "content": "评论内容",
+        "author": { "id": "3f2a...", "username": "alice", "nickname": "Alice" },
+        "article_index_id": 1,
+        "article_title": "文章标题",
+        "is_deleted": false,
+        "is_hidden": false,
+        "created_at": "2026-08-23T10:00:00",
+        "updated_at": "2026-08-23T10:00:00"
+      }
+    ]
+  }
+}
+```
+
+### 4.10 编辑评论
+
+| 项目           | 内容                                              |
+| -------------- | ------------------------------------------------- |
+| **方法** | `PATCH`                                           |
+| **路径** | `/api/admin/comments/{commentIndexId}`            |
+| **认证** | 需要登录（仅 `is_admin`）                         |
+
+**请求体（JSON，部分更新）：**
+
+| 字段       | 类型    | 说明                                                          |
+| ---------- | ------- | ------------------------------------------------------------- |
+| content    | String  | 修改内容（生成新版本，作者与所属文章不变）                     |
+| is_hidden  | Boolean | `true` 隐藏 / `false` 取消隐藏（作用于最新版本）                |
+| is_deleted | Boolean | `true` 软删除 / `false` **恢复已删除评论**（作用于最新版本）     |
+
+> 三个字段均可选，至少提供一个。
+
+**成功响应（200）：** `{ "comment": { ...同 4.9 条目结构 } }`。
+
+---
+
+## 五、数据模型
+
+### 5.1 User（用户）
 
 | 字段           | 类型     | 说明                                 |
 | -------------- | -------- | ------------------------------------ |
@@ -1163,10 +1429,13 @@
 | real_name      | String   | 真实姓名，最多50字符，可选           |
 | mobile         | String   | 手机号，最多11位，可选               |
 | gender         | String   | 性别：male / female / other，可选    |
+| is_staff       | Boolean  | 是否员工（可访问管理员后端查询），默认 false |
+| is_admin       | Boolean  | 是否管理员（可修改管理员后端数据），默认 false |
+| is_enabled     | Boolean  | 是否启用（禁用后无法登录），默认 true |
 | date_joined    | DateTime | 注册时间                             |
 | last_login     | DateTime | 最后登录时间                         |
 
-### 4.2 Article（文章）
+### 5.2 Article（文章）
 
 | 字段       | 类型     | 说明                                       |
 | ---------- | -------- | ------------------------------------------ |
@@ -1177,7 +1446,7 @@
 | updated_at | DateTime | 最后更新时间                               |
 | author_id  | Long     | 作者 ID（外键关联 User）                   |
 
-### 4.3 Comment（评论）
+### 5.3 Comment（评论）
 
 | 字段        | 类型     | 说明                            |
 | ----------- | -------- | ------------------------------- |
@@ -1191,7 +1460,7 @@
 | author_id   | Long     | 作者 ID（外键关联 User）        |
 | article_id  | Long     | 所属文章 ID（外键关联 Article） |
 
-### 4.4 ArticleFile（文章附件）
+### 5.4 ArticleFile（文章附件）
 
 | 字段       | 类型     | 说明                                                |
 | ---------- | -------- | --------------------------------------------------- |
@@ -1203,7 +1472,7 @@
 | created_at | DateTime | 上传时间                                            |
 | article_id | Long     | 所属文章 ID（外键关联 Article，可为空表示临时文件） |
 
-### 4.5 TempFile（临时文件）
+### 5.5 TempFile（临时文件）
 
 | 字段       | 类型     | 说明                       |
 | ---------- | -------- | -------------------------- |
@@ -1218,7 +1487,7 @@
 
 ---
 
-## 五、接口总览
+## 六、接口总览
 
 ### 用户模块
 
@@ -1263,6 +1532,21 @@
 | 27 | POST | `/api/comment/hide/{commentIndexId}/`   | 隐藏评论 | 是（作者） |
 | 28 | POST | `/api/comment/unhide/{commentIndexId}/` | 取消隐藏评论 | 是（作者） |
 
+### 管理员模块
+
+| #  | 方法   | 路径                                | 说明                       | 认证                     |
+| -- | ------ | ----------------------------------- | -------------------------- | ------------------------ |
+| 29 | GET    | `/api/admin/users`                | 用户列表（分页 + 搜索）    | staff / admin            |
+| 30 | GET    | `/api/admin/users/{id}`           | 用户详情                   | staff / admin            |
+| 31 | POST   | `/api/admin/users`                | 创建用户                   | 仅 admin                 |
+| 32 | PATCH  | `/api/admin/users/{id}`           | 编辑用户（部分更新）       | 仅 admin                 |
+| 33 | DELETE | `/api/admin/users/{id}`           | 删除用户（含文章/评论）    | 仅 admin                 |
+| 34 | GET    | `/api/admin/articles`             | 文章列表（含已删/已隐藏）  | staff / admin            |
+| 35 | GET    | `/api/admin/articles/{indexId}`   | 文章详情                   | staff / admin            |
+| 36 | PATCH  | `/api/admin/articles/{indexId}`   | 编辑文章（内容/隐藏/删除） | 仅 admin                 |
+| 37 | GET    | `/api/admin/comments`             | 评论列表（含已删/已隐藏）  | staff / admin            |
+| 38 | PATCH  | `/api/admin/comments/{indexId}`   | 编辑评论（内容/隐藏/删除） | 仅 admin                 |
+
 ### 系统接口
 
 | #  | 方法 | 路径          | 说明                              | 认证 |
@@ -1271,7 +1555,7 @@
 
 ---
 
-## 六、前后端对接注意事项
+## 七、前后端对接注意事项
 
 1. **代理配置**：前端 `vite.config.ts` 已代理 `/api` 和 `/media` 到 `http://127.0.0.1:8080`（Spring Boot）
 2. **CSRF 适配**：前端已改用 Spring Security 风格 CSRF 机制（`XSRF-TOKEN` Cookie + `X-XSRF-TOKEN` 请求头），后端使用 `CookieCsrfTokenRepository` 即可直接对接；首次非 GET 请求前前端会自动请求 `/api/csrf` 获取令牌

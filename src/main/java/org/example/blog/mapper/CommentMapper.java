@@ -46,6 +46,25 @@ public interface CommentMapper {
                               @Param("viewerId") UUID viewerId,
                               @Param("isAdmin") boolean isAdmin);
 
+    /**
+     * 管理员后端：分页查询全部评论（含已删除/已隐藏，最新版本），按 created_at 降序，
+     * 结果携带所属文章标题（articleTitle，文章已不存在时为 null）。
+     * keyword 非空时按内容模糊匹配；deleted/hidden 为 null 时不过滤该状态，否则只保留匹配值
+     */
+    List<Comment> selectAdminPage(@Param("keyword") String keyword,
+                                  @Param("deleted") Boolean deleted,
+                                  @Param("hidden") Boolean hidden,
+                                  @Param("limit") int limit,
+                                  @Param("offset") int offset);
+
+    /** 管理员后端：统计全部评论总数（过滤条件与 selectAdminPage 一致） */
+    long countAdmin(@Param("keyword") String keyword,
+                    @Param("deleted") Boolean deleted,
+                    @Param("hidden") Boolean hidden);
+
+    /** 物理删除某用户的所有评论（管理员删除用户时调用，绕过软删除） */
+    int deleteByAuthorId(@Param("authorId") UUID authorId);
+
     /** 插入评论，自动查询 index_id 相同的评论并继承其 created_at，若没有则 created_at 为 updated_at
       * 使用此接口插入时 is_deleted 永远为 false，旧评论（indexId 不为 null）的 is_hidden 沿用上一版本，新评论使用 DEFAULT
       * indexId 为 null（新评论）时由数据库序列（SERIAL）自动生成，指定时（修改评论）沿用 */

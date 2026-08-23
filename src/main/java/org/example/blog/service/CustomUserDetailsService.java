@@ -61,14 +61,19 @@ public class CustomUserDetailsService implements UserDetailsService {
             authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
         }
 
+        // 基于 is_staff 字段添加 ROLE_STAFF 权限（管理员后端只读访问）
+        if (user.getIsStaff() != null && user.getIsStaff()) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_STAFF"));
+        }
+
         if (user.getRoles() != null) {
             for (Role role : user.getRoles()) {
                 String roleName = role.getRoleName();
                 if (!roleName.startsWith("ROLE_")) {
                     roleName = "ROLE_" + roleName;
                 }
-                // 跳过 ROLE_ADMIN，已由 isAdmin 字段控制
-                if ("ROLE_ADMIN".equals(roleName)) {
+                // 跳过 ROLE_ADMIN / ROLE_STAFF，已由 isAdmin / isStaff 字段控制
+                if ("ROLE_ADMIN".equals(roleName) || "ROLE_STAFF".equals(roleName)) {
                     continue;
                 }
                 authorities.add(new SimpleGrantedAuthority(roleName));

@@ -67,6 +67,36 @@
         ORDER BY created_at DESC
     </select>
 
+    <!-- 管理员后端：分页查询用户，按用户名/昵称/邮箱/学号模糊匹配，按 created_at 降序 -->
+    <select id="selectPage" resultMap="UserResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM users
+        <where>
+            <if test="keyword != null and keyword != ''">
+                (username ILIKE CONCAT('%', #{keyword}, '%')
+                OR nickname ILIKE CONCAT('%', #{keyword}, '%')
+                OR email ILIKE CONCAT('%', #{keyword}, '%')
+                OR student_number ILIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 管理员后端：统计用户总数（过滤条件与 selectPage 一致） -->
+    <select id="countByKeyword" resultType="long">
+        SELECT COUNT(*)
+        FROM users
+        <where>
+            <if test="keyword != null and keyword != ''">
+                (username ILIKE CONCAT('%', #{keyword}, '%')
+                OR nickname ILIKE CONCAT('%', #{keyword}, '%')
+                OR email ILIKE CONCAT('%', #{keyword}, '%')
+                OR student_number ILIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+    </select>
+
     <!-- 插入用户 -->
     <insert id="insert" parameterType="org.example.blog.dao.User">
         INSERT INTO users (id, username, password, nickname, real_name, gender, email,
@@ -81,6 +111,7 @@
     <update id="update" parameterType="org.example.blog.dao.User">
         UPDATE users
         <set>
+            <if test="username != null">username = #{username},</if>
             <if test="password != null">password = #{password},</if>
             <if test="nickname != null">nickname = #{nickname},</if>
             <if test="realName != null">real_name = #{realName},</if>

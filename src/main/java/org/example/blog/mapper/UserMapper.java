@@ -1,6 +1,7 @@
 package org.example.blog.mapper;
 
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 import org.example.blog.dao.Role;
 import org.example.blog.dao.User;
 
@@ -24,6 +25,17 @@ public interface UserMapper {
 
     /** 查询所有用户 */
     List<User> selectAll();
+
+    /**
+     * 分页查询用户（管理员后端），按 created_at 降序。
+     * keyword 为 null 或空时不过滤，否则按用户名/昵称/邮箱/学号模糊匹配
+     */
+    List<User> selectPage(@Param("keyword") String keyword,
+                          @Param("limit") int limit,
+                          @Param("offset") int offset);
+
+    /** 统计用户总数（过滤条件与 selectPage 一致） */
+    long countByKeyword(@Param("keyword") String keyword);
 
     /** 插入用户 */
     int insert(User user);

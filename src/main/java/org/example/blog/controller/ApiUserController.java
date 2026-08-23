@@ -487,6 +487,8 @@ public class ApiUserController {
         map.put("nickname", user.getNickname());
         map.put("student_number", user.getStudentNumber());
         map.put("email_verified", user.getEmailVerified() != null && user.getEmailVerified());
+        map.put("is_staff", user.getIsStaff() != null && user.getIsStaff());
+        map.put("is_admin", user.getIsAdmin() != null && user.getIsAdmin());
         map.put("real_name", user.getRealName());
         map.put("mobile", user.getMobile());
         map.put("gender", user.getGender());
