@@ -1,0 +1,6 @@
+spring.datasource.url=jdbc:postgresql://localhost:5432/spring_blog
+spring.datasource.username=your_username
+spring.datasource.password=xxx
+spring.datasource.driver-class-name=org.postgresql.Driver
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect

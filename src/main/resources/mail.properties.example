@@ -1,0 +1,6 @@
+spring.mail.host=smtp.example.com
+spring.mail.port=xxx
+spring.mail.username=youremail@example.com
+spring.mail.password=xxx
+spring.mail.properties.mail.smtp.auth=true
+spring.mail.properties.mail.smtp.ssl.enable=true

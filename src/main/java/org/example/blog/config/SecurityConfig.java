@@ -69,10 +69,7 @@ public class SecurityConfig {
                 // 管理员后端 API：查询（GET）需员工或管理员，修改（写操作）仅管理员
                 .requestMatchers(HttpMethod.GET, "/api/admin/**").hasAnyRole("STAFF", "ADMIN")
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                // 管理员接口（遗留页面路径）
-                .requestMatchers("/admin/**").hasRole("ADMIN")
-                .requestMatchers("/staff/**").hasAnyRole("STAFF", "ADMIN")
-                // 其余请求
+                // 其余请求（含 SPA 页面路由与静态资源）
                 .anyRequest().permitAll()
             )
             // 不使用 formLogin，登录由 ApiUserController 处理（支持 JSON 请求体）
