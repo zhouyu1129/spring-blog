@@ -19,19 +19,20 @@ public interface ArticleMapper {
     /**
      * 分页查询全站可见文章（可见性过滤与分页在 SQL 层完成），按 created_at 降序，
      * 相同 index_id 只保留 updated_at 最新的一个版本。
-     * 可见性：已删除文章不返回；已隐藏文章仅当查看者是管理员（isAdmin）或作者本人（viewerId）时返回。
+     * 可见性：已删除文章不返回；已隐藏文章仅当查看者可查看隐藏内容（canViewHidden：
+     * 管理员、作者本人或拥有 article:view:hidden 权限的角色）或作者本人（viewerId）时返回。
      * keyword 为 null 或空时不过滤标题，否则按标题 ILIKE 模糊匹配。
      */
     List<Article> selectVisiblePage(@Param("keyword") String keyword,
                                     @Param("viewerId") UUID viewerId,
-                                    @Param("isAdmin") boolean isAdmin,
+                                    @Param("canViewHidden") boolean canViewHidden,
                                     @Param("limit") int limit,
                                     @Param("offset") int offset);
 
     /** 统计全站可见文章总数（过滤条件与 selectVisiblePage 一致） */
     long countVisible(@Param("keyword") String keyword,
                       @Param("viewerId") UUID viewerId,
-                      @Param("isAdmin") boolean isAdmin);
+                      @Param("canViewHidden") boolean canViewHidden);
 
     /**
      * 分页查询某作者主页的可见文章（过滤与分页在 SQL 层完成），按 created_at 降序，

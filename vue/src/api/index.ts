@@ -220,4 +220,13 @@ export const adminApi = {
   },
   updateComment: (commentIndexId: number, data: Record<string, any>) =>
     request(`/admin/comments/${commentIndexId}`, { method: 'PATCH', body: data }),
+  // 角色管理
+  listRoles: () => request('/admin/roles'),
+  listPermissions: () => request('/admin/permissions'),
+  createRole: (data: Record<string, any>) =>
+    request('/admin/roles', { method: 'POST', body: data }),
+  updateRole: (id: number, data: Record<string, any>) =>
+    request(`/admin/roles/${id}`, { method: 'PATCH', body: data }),
+  deleteRole: (id: number) =>
+    request(`/admin/roles/${id}`, { method: 'DELETE' }),
 }

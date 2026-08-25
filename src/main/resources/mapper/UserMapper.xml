@@ -133,23 +133,40 @@
         DELETE FROM users WHERE id = #{id, jdbcType=OTHER}
     </delete>
 
-    <!-- 查询用户的角色列表 -->
+    <!-- 查询用户的角色列表（含该角色对该用户的有效期） -->
     <select id="selectRolesByUserId" resultType="org.example.blog.dao.Role">
-        SELECT r.id, r.role_name AS roleName, r.description
+        SELECT r.id, r.role_name AS roleName, r.description, r.is_system AS isSystem,
+               ur.expires_at AS expiresAt
         FROM roles r
         INNER JOIN user_roles ur ON r.id = ur.role_id
         WHERE ur.user_id = #{userId, jdbcType=OTHER}
     </select>
 
-    <!-- 给用户分配角色 -->
+    <!-- 给用户分配角色（expiresAt 为有效期，null 表示永久） -->
     <insert id="insertUserRole">
-        INSERT INTO user_roles (user_id, role_id) VALUES (#{userId, jdbcType=OTHER}, #{roleId})
-        ON CONFLICT DO NOTHING
+        INSERT INTO user_roles (user_id, role_id, expires_at)
+        VALUES (#{userId, jdbcType=OTHER}, #{roleId}, #{expiresAt})
+        ON CONFLICT (user_id, role_id) DO UPDATE SET expires_at = EXCLUDED.expires_at
     </insert>
 
     <!-- 移除用户的某个角色 -->
     <delete id="deleteUserRole">
         DELETE FROM user_roles WHERE user_id = #{userId, jdbcType=OTHER} AND role_id = #{roleId}
     </delete>
+
+    <!-- 移除用户的全部角色（重新分配前清空） -->
+    <delete id="deleteAllUserRoles">
+        DELETE FROM user_roles WHERE user_id = #{userId, jdbcType=OTHER}
+    </delete>
+
+    <!-- 查询用户当前有效角色的全部权限名（含负面权限）；过期角色的权限不参与计算 -->
+    <select id="selectEffectivePermissions" resultType="string">
+        SELECT DISTINCT p.perm_name
+        FROM permissions p
+        INNER JOIN role_permissions rp ON rp.permission_id = p.id
+        INNER JOIN user_roles ur ON ur.role_id = rp.role_id
+        WHERE ur.user_id = #{userId, jdbcType=OTHER}
+          AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+    </select>
 
 </mapper>

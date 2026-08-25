@@ -3,6 +3,7 @@ package org.example.blog.service;
 import lombok.RequiredArgsConstructor;
 import org.example.blog.dao.Role;
 import org.example.blog.dao.User;
+import org.example.blog.mapper.RoleMapper;
 import org.example.blog.mapper.UserMapper;
 import org.jspecify.annotations.NonNull;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,7 +19,11 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class UserService {
 
+    /** 注册默认获得的系统角色名 */
+    public static final String DEFAULT_ROLE_NAME = "user";
+
     private final UserMapper userMapper;
+    private final RoleMapper roleMapper;
     private final PasswordEncoder passwordEncoder;
 
     private static final Pattern STUDENT_ID_PATTERN = Pattern.compile("^\\d{10}$");
@@ -84,6 +89,11 @@ public class UserService {
             user.setEmailVerified(false);
         }
         userMapper.insert(user);
+        // 新用户自动获得「普通用户」系统角色（schema.sql 已保证该角色存在）
+        Role defaultRole = roleMapper.selectByRoleName(DEFAULT_ROLE_NAME);
+        if (defaultRole != null) {
+            userMapper.insertUserRole(user.getId(), defaultRole.getId(), null);
+        }
         return user;
     }
 
@@ -108,7 +118,13 @@ public class UserService {
 
     @Transactional
     public void assignRole(UUID userId, Integer roleId) {
-        userMapper.insertUserRole(userId, roleId);
+        userMapper.insertUserRole(userId, roleId, null);
+    }
+
+    /** 给用户分配角色并指定有效期（expiresAt 为 null 表示永久） */
+    @Transactional
+    public void assignRole(UUID userId, Integer roleId, LocalDateTime expiresAt) {
+        userMapper.insertUserRole(userId, roleId, expiresAt);
     }
 
     @Transactional

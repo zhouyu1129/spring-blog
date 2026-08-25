@@ -16,35 +16,36 @@ public interface CommentMapper {
     /**
      * 分页查询某文章的可见评论（过滤与分页在 SQL 层完成），按 created_at 降序，
      * 相同 index_id 只保留 updated_at 最新的一个版本。
-     * 可见性：已删除评论不返回；已隐藏评论仅当查看者是管理员（isAdmin）或评论作者本人（viewerId）时返回。
+     * 可见性：已删除评论不返回；已隐藏评论仅当查看者是评论作者本人（viewerId）、
+     * 管理员或拥有 comment:view:hidden 权限的角色（canViewHidden）时返回。
      */
     List<Comment> selectVisiblePage(@Param("articleIndexId") Integer articleIndexId,
                                     @Param("viewerId") UUID viewerId,
-                                    @Param("isAdmin") boolean isAdmin,
+                                    @Param("canViewHidden") boolean canViewHidden,
                                     @Param("limit") int limit,
                                     @Param("offset") int offset);
 
     /** 统计某文章的可见评论总数（过滤条件与 selectVisiblePage 一致） */
     long countVisible(@Param("articleIndexId") Integer articleIndexId,
                       @Param("viewerId") UUID viewerId,
-                      @Param("isAdmin") boolean isAdmin);
+                      @Param("canViewHidden") boolean canViewHidden);
 
     /**
      * 分页查询某作者的可见评论（用户主页使用，过滤与分页在 SQL 层完成），按 created_at 降序，
      * 相同 index_id 只保留 updated_at 最新的一个版本，结果携带所属文章标题（articleTitle）。
-     * 可见性：已删除评论不返回；已隐藏评论仅管理员或评论作者本人可见；
-     * 所属文章不存在、已删除或已隐藏的评论不返回（对任何人一致）。
+     * 可见性：已删除评论不返回；已隐藏评论仅评论作者本人、管理员或拥有 comment:view:hidden
+     * 权限的角色（canViewHidden）可见；所属文章不存在、已删除或已隐藏的评论不返回（对任何人一致）。
      */
     List<Comment> selectVisibleByAuthorPage(@Param("authorId") UUID authorId,
                                             @Param("viewerId") UUID viewerId,
-                                            @Param("isAdmin") boolean isAdmin,
+                                            @Param("canViewHidden") boolean canViewHidden,
                                             @Param("limit") int limit,
                                             @Param("offset") int offset);
 
     /** 统计某作者的可见评论总数（过滤条件与 selectVisibleByAuthorPage 一致） */
     long countVisibleByAuthor(@Param("authorId") UUID authorId,
                               @Param("viewerId") UUID viewerId,
-                              @Param("isAdmin") boolean isAdmin);
+                              @Param("canViewHidden") boolean canViewHidden);
 
     /**
      * 管理员后端：分页查询全部评论（含已删除/已隐藏，最新版本），按 created_at 降序，

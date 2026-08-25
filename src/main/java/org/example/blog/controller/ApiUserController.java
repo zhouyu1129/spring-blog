@@ -8,6 +8,7 @@ import org.example.blog.mapper.ArticleMapper;
 import org.example.blog.service.CommentService;
 import org.example.blog.service.CustomUserDetails;
 import org.example.blog.service.EmailService;
+import org.example.blog.service.PermissionService;
 import org.example.blog.service.UserService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +41,7 @@ public class ApiUserController {
     private final EmailService emailService;
     private final ArticleMapper articleMapper;
     private final CommentService commentService;
+    private final PermissionService permissionService;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -49,13 +51,15 @@ public class ApiUserController {
 
     public ApiUserController(UserService userService, PasswordEncoder passwordEncoder,
                              AuthenticationManager authenticationManager, EmailService emailService,
-                             ArticleMapper articleMapper, CommentService commentService) {
+                             ArticleMapper articleMapper, CommentService commentService,
+                             PermissionService permissionService) {
         this.userService = userService;
         this.passwordEncoder = passwordEncoder;
         this.authenticationManager = authenticationManager;
         this.emailService = emailService;
         this.articleMapper = articleMapper;
         this.commentService = commentService;
+        this.permissionService = permissionService;
     }
 
     // ========== 登录 ==========
@@ -417,10 +421,12 @@ public class ApiUserController {
             return ResponseEntity.status(404).body(Map.of("status", "error", "message", "用户不存在"));
         }
 
-        // 已隐藏文章仅管理员和作者本人可见（与全站文章列表一致）
+        // 已隐藏文章仅管理员、作者本人和拥有 article:view:hidden 权限的角色可见（与全站文章列表一致）
         boolean viewerIsAdmin = currentUser != null && currentUser.isAdmin();
         boolean viewerIsOwner = currentUser != null && currentUser.getId().equals(targetUser.getId());
-        boolean canViewHidden = viewerIsAdmin || viewerIsOwner;
+        boolean canViewHidden = viewerIsAdmin || viewerIsOwner
+                || (currentUser != null
+                    && permissionService.hasPermission(currentUser.getId(), false, PermissionService.ARTICLE_VIEW_HIDDEN));
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("target_user", toPublicProfileMap(targetUser));

@@ -78,7 +78,7 @@ public class ApiArticleController {
             return badRequest("image_id_mapping 格式错误");
         }
 
-        articleService.create(currentUser.getId(), title, content, images, mapping, selectedFiles);
+        articleService.create(currentUser.getId(), isAdmin(currentUser), title, content, images, mapping, selectedFiles);
         return ResponseEntity.ok(Map.of("status", "success", "message", "文章创建成功"));
     }
 

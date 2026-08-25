@@ -60,8 +60,7 @@ public class ApiCommentController {
         return ResponseEntity.ok(Map.of("status", "success", "message", "评论发布成功"));
     }
 
-    // ========== 3.3 修改评论（仅作者） ==========
-
+    // ========== 3.3 修改评论（作者/版主/管理员） ==========
     @PostMapping("/update/{commentIndexId}/")
     public ResponseEntity<?> update(@AuthenticationPrincipal CustomUserDetails currentUser,
                                     @PathVariable Integer commentIndexId,
@@ -73,7 +72,7 @@ public class ApiCommentController {
         if (content == null || content.isBlank()) {
             return badRequest("评论内容不能为空");
         }
-        commentService.edit(currentUser.getId(), commentIndexId, content);
+        commentService.edit(currentUser.getId(), isAdmin(currentUser), commentIndexId, content);
         return ResponseEntity.ok(Map.of("status", "success", "message", "评论修改成功"));
     }
 

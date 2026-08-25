@@ -35,4 +35,7 @@ public interface RoleMapper {
 
     /** 移除角色的某个权限 */
     int deleteRolePermission(Integer roleId, Integer permissionId);
+
+    /** 移除角色的全部权限（重新分配前清空） */
+    int deleteAllRolePermissions(Integer roleId);
 }

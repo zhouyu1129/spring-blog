@@ -119,4 +119,38 @@ public class ApiAdminController {
             @RequestBody Map<String, Object> body) {
         return ResponseEntity.ok(adminService.updateComment(commentIndexId, body));
     }
+
+    // ========== 角色管理 ==========
+
+    /** 角色列表（含权限名与用户数） */
+    @GetMapping("/roles")
+    public ResponseEntity<Map<String, Object>> listRoles() {
+        return ResponseEntity.ok(adminService.listRoles());
+    }
+
+    /** 权限字典（预置固定集合，供前端勾选） */
+    @GetMapping("/permissions")
+    public ResponseEntity<Map<String, Object>> listPermissions() {
+        return ResponseEntity.ok(adminService.listPermissions());
+    }
+
+    /** 创建角色（body: role_name 必填，description/permissions 可选，permissions 为权限名数组） */
+    @PostMapping("/roles")
+    public ResponseEntity<Map<String, Object>> createRole(@RequestBody Map<String, Object> body) {
+        return ResponseEntity.ok(adminService.createRole(body));
+    }
+
+    /** 编辑角色（部分更新：role_name/description/permissions；系统预置角色不可改名） */
+    @PatchMapping("/roles/{id}")
+    public ResponseEntity<Map<String, Object>> updateRole(
+            @PathVariable Integer id,
+            @RequestBody Map<String, Object> body) {
+        return ResponseEntity.ok(adminService.updateRole(id, body));
+    }
+
+    /** 删除角色（系统预置角色不可删除；用户分配与权限关联级联删除） */
+    @DeleteMapping("/roles/{id}")
+    public ResponseEntity<Map<String, Object>> deleteRole(@PathVariable Integer id) {
+        return ResponseEntity.ok(adminService.deleteRole(id));
+    }
 }

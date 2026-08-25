@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ShieldAlert, Users, FileText, MessageSquare } from 'lucide-vue-next'
+import { ShieldAlert, Users, FileText, MessageSquare, ShieldCheck } from 'lucide-vue-next'
 import { useAuth } from '@/composables/useAuth'
 import AdminUserTab from './AdminUserTab.vue'
 import AdminArticleTab from './AdminArticleTab.vue'
 import AdminCommentTab from './AdminCommentTab.vue'
+import AdminRoleTab from './AdminRoleTab.vue'
 
 const { isStaff, isAdmin } = useAuth()
-const activeTab = ref<'users' | 'articles' | 'comments'>('users')
+const activeTab = ref<'users' | 'articles' | 'comments' | 'roles'>('users')
 </script>
 
 <template>
@@ -49,11 +50,19 @@ const activeTab = ref<'users' | 'articles' | 'comments'>('users')
       >
         <MessageSquare :size="16" /> 评论
       </button>
+      <button
+        @click="activeTab = 'roles'"
+        :class="activeTab === 'roles' ? 'bg-emerald-600 text-white' : 'text-zinc-600 hover:bg-zinc-100'"
+        class="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+      >
+        <ShieldCheck :size="16" /> 角色
+      </button>
     </div>
 
     <!-- Tab 内容（v-if 惰性渲染，切换时重新挂载以刷新数据） -->
     <AdminUserTab v-if="activeTab === 'users'" />
     <AdminArticleTab v-else-if="activeTab === 'articles'" />
-    <AdminCommentTab v-else />
+    <AdminCommentTab v-else-if="activeTab === 'comments'" />
+    <AdminRoleTab v-else />
   </div>
 </template>

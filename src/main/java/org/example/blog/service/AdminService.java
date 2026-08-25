@@ -1,15 +1,20 @@
 package org.example.blog.service;
 
 import lombok.RequiredArgsConstructor;
+import org.example.blog.cache.RolePermissionCache;
 import org.example.blog.dao.Article;
 import org.example.blog.dao.Comment;
 import org.example.blog.dao.File;
 import org.example.blog.dao.Image;
+import org.example.blog.dao.Permission;
+import org.example.blog.dao.Role;
 import org.example.blog.dao.User;
 import org.example.blog.mapper.ArticleMapper;
 import org.example.blog.mapper.CommentMapper;
 import org.example.blog.mapper.FileMapper;
 import org.example.blog.mapper.ImageMapper;
+import org.example.blog.mapper.PermissionMapper;
+import org.example.blog.mapper.RoleMapper;
 import org.example.blog.mapper.UserMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,11 +23,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * 管理员后端业务逻辑。
@@ -33,6 +40,8 @@ import java.util.UUID;
  *   <li>用户名/邮箱/学号的格式与唯一性校验（创建和修改时）</li>
  *   <li>自我保护：管理员不能取消自己的管理员权限、禁用或删除自己的账号</li>
  *   <li>文章/评论的软删除与隐藏状态按「最新版本」读写，内容修改生成新版本且不改变作者</li>
+ *   <li>角色管理：系统预置角色不可删除、不可改名；角色名全局唯一；权限来自固定权限字典</li>
+ *   <li>用户角色：整体替换语义，每条可带有效期（expires_at，空为永久）</li>
  * </ul>
  */
 @Service
@@ -41,11 +50,17 @@ public class AdminService {
 
     private static final int PAGE_SIZE = 10;
 
+    /** 角色名格式：2-64 位，小写字母开头，可含小写字母/数字/下划线/连字符 */
+    private static final Pattern ROLE_NAME_PATTERN = Pattern.compile("^[a-z][a-z0-9_-]{1,63}$");
+
     private final UserMapper userMapper;
     private final ArticleMapper articleMapper;
     private final CommentMapper commentMapper;
     private final ImageMapper imageMapper;
     private final FileMapper fileMapper;
+    private final RoleMapper roleMapper;
+    private final PermissionMapper permissionMapper;
+    private final RolePermissionCache cache;
     private final PasswordEncoder passwordEncoder;
 
     // ========== 用户管理 ==========
@@ -202,7 +217,16 @@ public class AdminService {
             throw badRequest("请求体不包含可修改的字段");
         }
 
-        userMapper.update(update);
+        // 角色整体替换（body.containsKey("roles") 时执行；放在字段校验之后、落库之前）
+        if (body.containsKey("roles")) {
+            replaceUserRoles(targetId, body.get("roles"));
+        }
+
+        // 只有 roles 字段时无需更新 users 表（避免空 SET 子句）
+        boolean hasUserFields = body.keySet().stream().anyMatch(k -> !"roles".equals(k));
+        if (hasUserFields) {
+            userMapper.update(update);
+        }
         return Map.of("user", toAdminUserMap(userMapper.selectById(targetId)));
     }
 
@@ -400,6 +424,204 @@ public class AdminService {
         return Map.of("comment", toAdminCommentMap(commentMapper.selectByIndexId(commentIndexId)));
     }
 
+    // ========== 角色管理 ==========
+
+    /** 角色列表（含权限与用户数，用户数含已过期的分配） */
+    public Map<String, Object> listRoles() {
+        List<Map<String, Object>> roles = new ArrayList<>();
+        for (Role role : roleMapper.selectAll()) {
+            // selectAll 不联查权限，这里单独补齐
+            role.setPermissions(roleMapper.selectPermissionsByRoleId(role.getId()));
+            roles.add(toAdminRoleMap(role));
+        }
+        return Map.of("object_list", roles);
+    }
+
+    /** 权限字典（预置固定集合，供前端勾选） */
+    public Map<String, Object> listPermissions() {
+        List<Map<String, Object>> perms = permissionMapper.selectAll().stream()
+                .map(p -> {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("id", p.getId());
+                    map.put("perm_name", p.getPermName());
+                    map.put("description", p.getDescription());
+                    return map;
+                })
+                .toList();
+        return Map.of("object_list", perms);
+    }
+
+    /**
+     * 创建角色。body: { role_name, description?, permissions: [权限名...] }
+     * 约束：角色名格式合法且全局唯一；权限必须来自权限字典
+     */
+    @Transactional
+    public Map<String, Object> createRole(Map<String, Object> body) {
+        String roleName = requiredString(body, "role_name");
+        if (!ROLE_NAME_PATTERN.matcher(roleName).matches()) {
+            throw badRequest("角色名不合法（2-64 位，小写字母开头，仅含小写字母/数字/下划线/连字符）");
+        }
+        if (roleMapper.selectByRoleName(roleName) != null) {
+            throw badRequest("角色名已存在");
+        }
+
+        Role role = new Role();
+        role.setRoleName(roleName);
+        role.setDescription(optionalString(body, "description", null));
+        role.setIsSystem(false);
+        roleMapper.insert(role);
+        replaceRolePermissions(role.getId(), body.get("permissions"));
+        cache.refresh();
+
+        return Map.of("role", toAdminRoleMap(roleMapper.selectById(role.getId())));
+    }
+
+    /**
+     * 编辑角色（部分更新）。body: { role_name?, description?, permissions? }
+     * 约束：系统预置角色不可改名；新角色名格式合法且全局唯一；权限必须来自权限字典
+     */
+    @Transactional
+    public Map<String, Object> updateRole(Integer roleId, Map<String, Object> body) {
+        Role current = roleMapper.selectById(roleId);
+        if (current == null) {
+            throw notFound("角色不存在");
+        }
+        if (body.isEmpty()) {
+            throw badRequest("请求体不包含可修改的字段");
+        }
+
+        boolean isSystem = Boolean.TRUE.equals(current.getIsSystem());
+        if (body.containsKey("role_name")) {
+            String roleName = requiredString(body, "role_name");
+            if (isSystem && !roleName.equals(current.getRoleName())) {
+                throw badRequest("系统预置角色不可改名");
+            }
+            if (!ROLE_NAME_PATTERN.matcher(roleName).matches()) {
+                throw badRequest("角色名不合法（2-64 位，小写字母开头，仅含小写字母/数字/下划线/连字符）");
+            }
+            Role existing = roleMapper.selectByRoleName(roleName);
+            if (existing != null && !existing.getId().equals(roleId)) {
+                throw badRequest("角色名已存在");
+            }
+            Role update = new Role();
+            update.setId(roleId);
+            update.setRoleName(roleName);
+            if (body.containsKey("description")) {
+                update.setDescription(stringOrNull(body.get("description")));
+            }
+            roleMapper.update(update);
+        } else if (body.containsKey("description")) {
+            Role update = new Role();
+            update.setId(roleId);
+            update.setDescription(stringOrNull(body.get("description")));
+            roleMapper.update(update);
+        }
+
+        if (body.containsKey("permissions")) {
+            replaceRolePermissions(roleId, body.get("permissions"));
+        }
+        cache.refresh();
+
+        return Map.of("role", toAdminRoleMap(roleMapper.selectById(roleId)));
+    }
+
+    /**
+     * 删除角色（非系统预置角色）。其用户分配与权限关联由外键级联删除
+     */
+    @Transactional
+    public Map<String, Object> deleteRole(Integer roleId) {
+        Role role = roleMapper.selectById(roleId);
+        if (role == null) {
+            throw notFound("角色不存在");
+        }
+        if (Boolean.TRUE.equals(role.getIsSystem())) {
+            throw badRequest("系统预置角色不可删除");
+        }
+        roleMapper.deleteById(roleId);
+        cache.refresh();
+        return Map.of("status", "success", "message", "角色已删除");
+    }
+
+    /**
+     * 替换角色的全部权限（先清空再插入），permissionsRaw 必须为权限名数组
+     */
+    private void replaceRolePermissions(Integer roleId, Object permissionsRaw) {
+        if (permissionsRaw == null) {
+            permissionsRaw = List.of();
+        }
+        if (!(permissionsRaw instanceof List<?> permNames)) {
+            throw badRequest("permissions 必须为权限名数组");
+        }
+        // 先整体校验，再落库，避免半途失败留下半套权限
+        List<Integer> permissionIds = new ArrayList<>();
+        for (Object name : permNames) {
+            if (!(name instanceof String permName) || permName.isBlank()) {
+                throw badRequest("permissions 数组元素必须为非空权限名");
+            }
+            Permission perm = permissionMapper.selectByPermName(permName);
+            if (perm == null) {
+                throw badRequest("权限不存在: " + permName);
+            }
+            permissionIds.add(perm.getId());
+        }
+        roleMapper.deleteAllRolePermissions(roleId);
+        for (Integer permissionId : permissionIds) {
+            roleMapper.insertRolePermission(roleId, permissionId);
+        }
+    }
+
+    /**
+     * 替换用户的全部角色。rolesRaw 为数组，每项 { role_name | role_id, expires_at? }，
+     * expires_at 缺省或 null 表示永久；整体校验通过后才删除旧角色
+     */
+    private void replaceUserRoles(UUID userId, Object rolesRaw) {
+        if (rolesRaw == null) {
+            rolesRaw = List.of();
+        }
+        if (!(rolesRaw instanceof List<?> roleList)) {
+            throw badRequest("roles 必须为数组");
+        }
+        record RoleAssignment(Integer roleId, LocalDateTime expiresAt) {
+        }
+        List<RoleAssignment> assignments = new ArrayList<>();
+        for (Object item : roleList) {
+            if (!(item instanceof Map<?, ?> roleMap)) {
+                throw badRequest("roles 数组元素必须为对象（role_name 或 role_id，可选 expires_at）");
+            }
+            Role role = null;
+            Object roleName = roleMap.get("role_name");
+            Object roleId = roleMap.get("role_id");
+            if (roleName instanceof String name && !name.isBlank()) {
+                role = roleMapper.selectByRoleName(name);
+                if (role == null) {
+                    throw badRequest("角色不存在: " + name);
+                }
+            } else if (roleId instanceof Number number) {
+                role = roleMapper.selectById(number.intValue());
+                if (role == null) {
+                    throw badRequest("角色不存在: id=" + number);
+                }
+            } else {
+                throw badRequest("roles 数组元素需提供 role_name 或 role_id");
+            }
+
+            LocalDateTime expiresAt = null;
+            Object expiresRaw = roleMap.get("expires_at");
+            if (expiresRaw instanceof String expiresStr && !expiresStr.isBlank()) {
+                try {
+                    expiresAt = LocalDateTime.parse(expiresStr);
+                } catch (DateTimeParseException e) {
+                    throw badRequest("expires_at 格式不合法（需 ISO-8601，如 2026-12-31T23:59:59）");
+                }
+            }
+            assignments.add(new RoleAssignment(role.getId(), expiresAt));
+        }
+        userMapper.deleteAllUserRoles(userId);
+        for (RoleAssignment assignment : assignments) {
+            userMapper.insertUserRole(userId, assignment.roleId(), assignment.expiresAt());
+        }
+    }
+
     // ========== 辅助方法 ==========
 
     private void requireUniqueUser(String username, String email, String studentNumber, UUID excludeId) {
@@ -438,11 +660,33 @@ public class AdminService {
         map.put("is_enabled", user.getIsEnabled());
         map.put("created_at", user.getCreatedAt());
         map.put("last_logged_at", user.getLastLoggedAt());
-        List<String> roles = new ArrayList<>();
+        List<Map<String, Object>> roles = new ArrayList<>();
         if (user.getRoles() != null) {
-            user.getRoles().forEach(role -> roles.add(role.getRoleName()));
+            for (Role role : user.getRoles()) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("role_name", role.getRoleName());
+                r.put("description", role.getDescription());
+                r.put("expires_at", role.getExpiresAt() != null ? role.getExpiresAt().toString() : null);
+                roles.add(r);
+            }
         }
         map.put("roles", roles);
+        return map;
+    }
+
+    /** Role → 管理员视角的角色结构（含权限名列表与用户数） */
+    private Map<String, Object> toAdminRoleMap(Role role) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", role.getId());
+        map.put("role_name", role.getRoleName());
+        map.put("description", role.getDescription());
+        map.put("is_system", Boolean.TRUE.equals(role.getIsSystem()));
+        map.put("user_count", role.getUserCount() != null ? role.getUserCount() : 0L);
+        List<String> permissions = new ArrayList<>();
+        if (role.getPermissions() != null) {
+            role.getPermissions().forEach(p -> permissions.add(p.getPermName()));
+        }
+        map.put("permissions", permissions);
         return map;
     }
 

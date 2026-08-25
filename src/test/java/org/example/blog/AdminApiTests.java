@@ -497,6 +497,222 @@ class AdminApiTests {
                 .andExpect(jsonPath("$.page_obj.object_list.length()").value(1));
     }
 
+    // ========== 角色管理 ==========
+
+    @Test
+    void listRoles_containsSystemRolesWithPermissions() throws Exception {
+        String body = mockMvc.perform(get("/api/admin/roles")
+                        .with(auth(adminUser, true, true)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        List<String> names = JsonPath.read(body, "$.object_list[*].role_name");
+        assertThat(names).contains("user", "observer", "moderator", "muted");
+
+        // 系统角色带 is_system 标志；user 角色的权限与预置一致
+        List<Boolean> userIsSystem = JsonPath.read(body,
+                "$.object_list[?(@.role_name=='user')].is_system");
+        assertThat(userIsSystem.getFirst()).isTrue();
+        List<List<String>> userPerms = JsonPath.read(body,
+                "$.object_list[?(@.role_name=='user')].permissions");
+        assertThat(userPerms.getFirst()).containsExactlyInAnyOrder(
+                "article:create", "article:update:own", "comment:create", "comment:update:own");
+
+        // muted 角色含负面权限
+        List<List<String>> mutedPerms = JsonPath.read(body,
+                "$.object_list[?(@.role_name=='muted')].permissions");
+        assertThat(mutedPerms.getFirst()).containsExactlyInAnyOrder("!article:create", "!comment:create");
+    }
+
+    @Test
+    void listPermissions_returnsDictionary() throws Exception {
+        mockMvc.perform(get("/api/admin/permissions").with(auth(staffUser, false, true)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.object_list.length()").value(10));
+    }
+
+    @Test
+    void createRole_byAdmin_withPermissions() throws Exception {
+        String roleName = "vip_" + UUID.randomUUID().toString().substring(0, 6);
+
+        mockMvc.perform(post("/api/admin/roles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role_name\":\"" + roleName + "\","
+                                + "\"description\":\"自定义角色\","
+                                + "\"permissions\":[\"article:view:hidden\",\"comment:view:hidden\"]}")
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role.role_name").value(roleName))
+                .andExpect(jsonPath("$.role.is_system").value(false))
+                .andExpect(jsonPath("$.role.user_count").value(0))
+                .andExpect(jsonPath("$.role.permissions.length()").value(2));
+
+        // 列表可查到
+        String body = mockMvc.perform(get("/api/admin/roles")
+                        .with(auth(adminUser, true, true)))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        List<String> names = JsonPath.read(body, "$.object_list[*].role_name");
+        assertThat(names).contains(roleName);
+    }
+
+    @Test
+    void createRole_duplicateName_returns400() throws Exception {
+        mockMvc.perform(post("/api/admin/roles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role_name\":\"user\",\"permissions\":[]}")
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createRole_unknownPermission_returns400() throws Exception {
+        mockMvc.perform(post("/api/admin/roles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role_name\":\"bad_perm_role\",\"permissions\":[\"not:a:perm\"]}")
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createRole_invalidName_returns400() throws Exception {
+        mockMvc.perform(post("/api/admin/roles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role_name\":\"Bad Name\",\"permissions\":[]}")
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void updateRole_renameSystemRole_returns400() throws Exception {
+        String body = mockMvc.perform(get("/api/admin/roles")
+                        .with(auth(adminUser, true, true)))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        List<Integer> mutedIds = JsonPath.read(body, "$.object_list[?(@.role_name=='muted')].id");
+        Integer mutedId = mutedIds.getFirst();
+
+        mockMvc.perform(patch("/api/admin/roles/{id}", mutedId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role_name\":\"silenced\"}")
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void updateRole_changePermissions_succeeds() throws Exception {
+        // 创建自定义角色后修改权限
+        String roleName = "temp_" + UUID.randomUUID().toString().substring(0, 6);
+        String createBody = mockMvc.perform(post("/api/admin/roles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role_name\":\"" + roleName + "\",\"permissions\":[\"article:create\"]}")
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        Integer roleId = ((Number) JsonPath.read(createBody, "$.role.id")).intValue();
+
+        mockMvc.perform(patch("/api/admin/roles/{id}", roleId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"改描述\",\"permissions\":[\"comment:view:hidden\",\"article:view:hidden\"]}")
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role.description").value("改描述"))
+                .andExpect(jsonPath("$.role.permissions.length()").value(2));
+
+        // 删除自定义角色成功
+        mockMvc.perform(delete("/api/admin/roles/{id}", roleId)
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("success"));
+    }
+
+    @Test
+    void deleteRole_systemRole_returns400() throws Exception {
+        String body = mockMvc.perform(get("/api/admin/roles")
+                        .with(auth(adminUser, true, true)))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        List<Integer> observerIds = JsonPath.read(body, "$.object_list[?(@.role_name=='observer')].id");
+        Integer observerId = observerIds.getFirst();
+
+        mockMvc.perform(delete("/api/admin/roles/{id}", observerId)
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void updateUser_rolesWithExpiry_replacesRolesAndTakesEffect() throws Exception {
+        // 初始只有默认 user 角色
+        mockMvc.perform(get("/api/admin/users/{id}", normalUser.getId())
+                        .with(auth(adminUser, true, true)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.roles.length()").value(1))
+                .andExpect(jsonPath("$.user.roles[0].role_name").value("user"))
+                .andExpect(jsonPath("$.user.roles[0].expires_at").value((Object) null));
+
+        // 整体替换为 user + muted（带有效期）
+        mockMvc.perform(patch("/api/admin/users/{id}", normalUser.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"roles\":["
+                                + "{\"role_name\":\"user\"},"
+                                + "{\"role_name\":\"muted\",\"expires_at\":\"2030-12-31T23:59:59\"}]}")
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.roles.length()").value(2));
+
+        // 角色生效：muted 用户无法创建文章
+        mockMvc.perform(multipart("/api/article/create/")
+                        .param("title", uniqueTitle("禁言用户文章"))
+                        .param("content", "正文")
+                        .with(auth(normalUser, false, false))
+                        .with(csrf()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void updateUser_rolesOnly_skipsUserTableUpdate() throws Exception {
+        // 请求体只含 roles 字段：不应因空 SET 子句报错，其他字段保持不变
+        mockMvc.perform(patch("/api/admin/users/{id}", normalUser.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"roles\":[{\"role_name\":\"user\"}]}")
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.username").value(normalUser.getUsername()))
+                .andExpect(jsonPath("$.user.roles.length()").value(1));
+    }
+
+    @Test
+    void updateUser_unknownRole_returns400() throws Exception {
+        mockMvc.perform(patch("/api/admin/users/{id}", normalUser.getId())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"roles\":[{\"role_name\":\"no_such_role\"}]}")
+                        .with(auth(adminUser, true, true))
+                        .with(csrf()))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void roleManagement_staffUser_cannotWrite() throws Exception {
+        mockMvc.perform(post("/api/admin/roles")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role_name\":\"staff_role\",\"permissions\":[]}")
+                        .with(auth(staffUser, false, true))
+                        .with(csrf()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(delete("/api/admin/roles/{id}", 1)
+                        .with(auth(staffUser, false, true))
+                        .with(csrf()))
+                .andExpect(status().isForbidden());
+    }
+
     // ========== 辅助方法 ==========
 
     private User newUser(String prefix) {

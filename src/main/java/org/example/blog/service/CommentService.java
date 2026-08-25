@@ -29,11 +29,14 @@ public class CommentService {
     private final CommentMapper commentMapper;
     private final ArticleMapper articleMapper;
     private final UserService userService;
+    private final PermissionService permissionService;
 
-    public CommentService(CommentMapper commentMapper, ArticleMapper articleMapper, UserService userService) {
+    public CommentService(CommentMapper commentMapper, ArticleMapper articleMapper,
+                          UserService userService, PermissionService permissionService) {
         this.commentMapper = commentMapper;
         this.articleMapper = articleMapper;
         this.userService = userService;
+        this.permissionService = permissionService;
     }
 
     // ========== 查询 ==========
@@ -42,9 +45,11 @@ public class CommentService {
      * 文章的评论列表（分页），返回前端约定的结构（article + page_obj）。
      * 评论可见性过滤与分页在 SQL 层完成
      * <p>
-     * 文章可见性：已删除文章任何人都不可见；已隐藏文章仅管理员和作者本人可见（与文章详情一致）
+     * 文章可见性：已删除文章任何人都不可见；已隐藏文章仅管理员、作者本人
+     * 和拥有 article:view:hidden 权限的角色可见（与文章详情一致）
      * <p>
-     * 评论可见性：已删除评论任何人都不可见；已隐藏评论仅管理员和评论作者本人可见
+     * 评论可见性：已删除评论任何人都不可见；已隐藏评论仅管理员、评论作者本人
+     * 和拥有 comment:view:hidden 权限的角色可见
      *
      * @param page   页码，从 1 开始
      * @param userId 当前用户 ID，游客为 null
@@ -56,17 +61,19 @@ public class CommentService {
         if (article == null || Boolean.TRUE.equals(article.getIsDeleted())) {
             return null;
         }
-        if (Boolean.TRUE.equals(article.getIsHidden()) && !canViewHidden(article, userId, isAdmin)) {
+        if (Boolean.TRUE.equals(article.getIsHidden()) && !canViewHiddenArticle(article, userId, isAdmin)) {
             return null;
         }
 
-        long total = commentMapper.countVisible(articleIndexId, userId, isAdmin);
+        boolean canViewHiddenComment =
+                permissionService.hasPermission(userId, isAdmin, PermissionService.COMMENT_VIEW_HIDDEN);
+        long total = commentMapper.countVisible(articleIndexId, userId, canViewHiddenComment);
         int totalPages = (int) Math.max(1, (total + PAGE_SIZE - 1) / PAGE_SIZE);
         int currentPage = Math.clamp(page, 1, totalPages);
         int offset = (currentPage - 1) * PAGE_SIZE;
 
         List<Map<String, Object>> objectList = new ArrayList<>();
-        for (Comment comment : commentMapper.selectVisiblePage(articleIndexId, userId, isAdmin, PAGE_SIZE, offset)) {
+        for (Comment comment : commentMapper.selectVisiblePage(articleIndexId, userId, canViewHiddenComment, PAGE_SIZE, offset)) {
             objectList.add(toCommentMap(comment));
         }
 
@@ -84,21 +91,23 @@ public class CommentService {
     /**
      * 用户的评论列表（分页，用户主页使用），返回前端约定的 page_obj 结构。
      * 过滤与分页在 SQL 层完成（评论可见性 + 所属文章可见性通过 JOIN 过滤）；
-     * 已删除评论不展示；已隐藏评论仅管理员和评论作者本人可见；
-     * 所属文章已删除或已隐藏的评论不展示（与该接口文章列表的处理一致）
+     * 已删除评论不展示；已隐藏评论仅管理员、评论作者本人和拥有 comment:view:hidden
+     * 权限的角色可见；所属文章已删除或已隐藏的评论不展示（与该接口文章列表的处理一致）
      *
      * @param authorId      被查看主页的用户 ID（评论作者）
      * @param viewerId      当前查看者 ID，未登录为 null
      * @param viewerIsAdmin 当前查看者是否管理员
      */
     public Map<String, Object> listByAuthor(UUID authorId, int page, UUID viewerId, boolean viewerIsAdmin) {
-        long total = commentMapper.countVisibleByAuthor(authorId, viewerId, viewerIsAdmin);
+        boolean canViewHidden =
+                permissionService.hasPermission(viewerId, viewerIsAdmin, PermissionService.COMMENT_VIEW_HIDDEN);
+        long total = commentMapper.countVisibleByAuthor(authorId, viewerId, canViewHidden);
         int totalPages = (int) Math.max(1, (total + PAGE_SIZE - 1) / PAGE_SIZE);
         int currentPage = Math.clamp(page, 1, totalPages);
         int offset = (currentPage - 1) * PAGE_SIZE;
 
         List<Map<String, Object>> objectList = new ArrayList<>();
-        for (Comment comment : commentMapper.selectVisibleByAuthorPage(authorId, viewerId, viewerIsAdmin, PAGE_SIZE, offset)) {
+        for (Comment comment : commentMapper.selectVisibleByAuthorPage(authorId, viewerId, canViewHidden, PAGE_SIZE, offset)) {
             objectList.add(toProfileCommentMap(comment));
         }
 
@@ -111,12 +120,19 @@ public class CommentService {
 
     // ========== 创建 / 编辑 / 删除 ==========
 
-    /** 创建评论。文章必须存在且当前用户可见（未删除；已隐藏文章仅作者本人和管理员可评论） */
+    /**
+     * 创建评论。文章必须存在且当前用户可见（未删除；已隐藏文章仅作者本人、管理员
+     * 和拥有 article:view:hidden 权限的角色可评论）。
+     * 权限：需拥有 comment:create 权限（被赋予「禁止发言」等负面权限时拒绝）
+     */
     @Transactional
     public void create(UUID userId, boolean isAdmin, Integer articleIndexId, String content) {
+        if (!permissionService.hasPermission(userId, isAdmin, PermissionService.COMMENT_CREATE)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "您没有发表评论的权限");
+        }
         Article article = articleMapper.selectByIndexId(articleIndexId);
         if (article == null || Boolean.TRUE.equals(article.getIsDeleted())
-                || (Boolean.TRUE.equals(article.getIsHidden()) && !canViewHidden(article, userId, isAdmin))) {
+                || (Boolean.TRUE.equals(article.getIsHidden()) && !canViewHiddenArticle(article, userId, isAdmin))) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "文章不存在");
         }
 
@@ -130,10 +146,13 @@ public class CommentService {
         commentMapper.insert(comment);
     }
 
-    /** 编辑评论（仅作者本人）：插入一条沿用同一 indexId 的新版本记录，原版本保留，隐藏状态沿用到新版本 */
+    /**
+     * 编辑评论：插入一条沿用同一 indexId 的新版本记录，原版本保留，隐藏状态沿用到新版本。
+     * 权限：管理员；或评论作者本人且拥有 comment:update:own；或拥有 comment:update:any（版主）
+     */
     @Transactional
-    public void edit(UUID userId, Integer commentIndexId, String content) {
-        Comment current = requireOwnedComment(userId, commentIndexId);
+    public void edit(UUID userId, boolean isAdmin, Integer commentIndexId, String content) {
+        Comment current = requireEditableComment(userId, isAdmin, commentIndexId);
 
         Comment comment = new Comment();
         comment.setId(UUID.randomUUID());
@@ -165,7 +184,19 @@ public class CommentService {
 
     // ========== 内部方法 ==========
 
-    /** 查询评论并校验：存在、未删除且当前用户是作者，否则抛出 404/403 */
+    /** 查询评论并校验：存在、未删除且当前用户可编辑（作者且有 own 权限 / 版主 / 管理员），否则抛出 404/403 */
+    private Comment requireEditableComment(UUID userId, boolean isAdmin, Integer commentIndexId) {
+        Comment comment = commentMapper.selectByIndexId(commentIndexId);
+        if (comment == null || Boolean.TRUE.equals(comment.getIsDeleted())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "评论不存在");
+        }
+        if (!canEdit(comment, userId, isAdmin)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "没有权限编辑此评论");
+        }
+        return comment;
+    }
+
+    /** 查询评论并校验：存在、未删除且当前用户是作者（删除/隐藏操作），否则抛出 404/403 */
     private Comment requireOwnedComment(UUID userId, Integer commentIndexId) {
         Comment comment = commentMapper.selectByIndexId(commentIndexId);
         if (comment == null || Boolean.TRUE.equals(comment.getIsDeleted())) {
@@ -177,9 +208,30 @@ public class CommentService {
         return comment;
     }
 
-    /** 已隐藏文章是否对当前用户可见（管理员或作者本人） */
-    private boolean canViewHidden(Article article, UUID userId, boolean isAdmin) {
-        return isAdmin || (userId != null && userId.equals(article.getAuthorId()));
+    /**
+     * 当前用户是否可编辑该评论：
+     * 管理员直通；评论作者本人需拥有 comment:update:own；任何用户拥有 comment:update:any（版主）即可
+     */
+    private boolean canEdit(Comment comment, UUID userId, boolean isAdmin) {
+        if (isAdmin) {
+            return true;
+        }
+        if (userId == null) {
+            return false;
+        }
+        if (userId.equals(comment.getAuthorId())
+                && permissionService.hasPermission(userId, false, PermissionService.COMMENT_UPDATE_OWN)) {
+            return true;
+        }
+        return permissionService.hasPermission(userId, false, PermissionService.COMMENT_UPDATE_ANY);
+    }
+
+    /** 已隐藏文章是否对当前用户可见（管理员、作者本人或拥有 article:view:hidden 权限的角色） */
+    private boolean canViewHiddenArticle(Article article, UUID userId, boolean isAdmin) {
+        return isAdmin
+                || (userId != null && userId.equals(article.getAuthorId()))
+                || (userId != null
+                    && permissionService.hasPermission(userId, false, PermissionService.ARTICLE_VIEW_HIDDEN));
     }
 
     /** Comment → 前端评论结构（top 字段数据库暂未实现，固定为 false） */

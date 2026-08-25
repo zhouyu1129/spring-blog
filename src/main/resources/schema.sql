@@ -90,22 +90,28 @@ CREATE INDEX IF NOT EXISTS idx_comments_author_id ON comments (author_id);
 CREATE TABLE IF NOT EXISTS roles (
     id          SERIAL PRIMARY KEY,
     role_name   VARCHAR(64) NOT NULL UNIQUE,
-    description VARCHAR(256)
+    description VARCHAR(256),
+    is_system   BOOLEAN      DEFAULT FALSE NOT NULL -- 系统预置角色，不可删除、不可改名
 );
 
--- 权限表
+-- 权限表（权限字典，预置固定集合，不开放增删）
 CREATE TABLE IF NOT EXISTS permissions (
     id          SERIAL PRIMARY KEY,
     perm_name   VARCHAR(128) NOT NULL UNIQUE,
     description VARCHAR(256)
 );
 
--- 用户-角色关联表
+-- 用户-角色关联表（expires_at 为角色的有效期，NULL 表示永久）
 CREATE TABLE IF NOT EXISTS user_roles (
-    user_id UUID    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    role_id INTEGER NOT NULL REFERENCES roles (id) ON DELETE CASCADE,
+    user_id    UUID      NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    role_id    INTEGER   NOT NULL REFERENCES roles (id) ON DELETE CASCADE,
+    expires_at TIMESTAMP,
     PRIMARY KEY (user_id, role_id)
 );
+
+-- 已有库补列（幂等）
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE NOT NULL;
+ALTER TABLE user_roles ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;
 
 -- 角色-权限关联表
 CREATE TABLE IF NOT EXISTS role_permissions (
@@ -115,6 +121,51 @@ CREATE TABLE IF NOT EXISTS role_permissions (
 );
 
 -- ============================================
--- 初始数据
+-- 初始数据（幂等，重复执行不产生副作用）
 -- ============================================
 
+-- 权限字典：8 个正面权限 + 2 个负面权限（! 前缀表示禁止，判定规则为
+-- 「拥有正面权限且没有对应负面权限，或者是管理员」）
+INSERT INTO permissions (perm_name, description) VALUES
+    ('article:create',       '创建文章'),
+    ('article:update:own',   '修改自己的文章'),
+    ('article:update:any',   '修改任何文章'),
+    ('article:view:hidden',  '查看任何隐藏文章'),
+    ('comment:create',       '发表评论'),
+    ('comment:update:own',   '修改自己的评论'),
+    ('comment:update:any',   '修改任何评论'),
+    ('comment:view:hidden',  '查看任何隐藏评论'),
+    ('!article:create',      '禁止创建文章（负面权限）'),
+    ('!comment:create',      '禁止发表评论（负面权限）')
+ON CONFLICT (perm_name) DO NOTHING;
+
+-- 系统预置角色
+INSERT INTO roles (role_name, description, is_system) VALUES
+    ('user',      '普通用户（注册默认获得）', TRUE),
+    ('observer',  '观测者（可查看任何隐藏内容）', TRUE),
+    ('moderator', '版主（可查看隐藏内容并修改任何文章、评论）', TRUE),
+    ('muted',     '禁止发言（无法发表文章和评论）', TRUE)
+ON CONFLICT (role_name) DO NOTHING;
+
+-- 角色-权限关联
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id
+FROM roles r
+CROSS JOIN permissions p
+WHERE (r.role_name = 'user' AND p.perm_name IN
+        ('article:create', 'article:update:own', 'comment:create', 'comment:update:own'))
+   OR (r.role_name = 'observer' AND p.perm_name IN
+        ('article:view:hidden', 'comment:view:hidden'))
+   OR (r.role_name = 'moderator' AND p.perm_name IN
+        ('article:view:hidden', 'comment:view:hidden', 'article:update:any', 'comment:update:any'))
+   OR (r.role_name = 'muted' AND p.perm_name IN
+        ('!article:create', '!comment:create'))
+ON CONFLICT DO NOTHING;
+
+-- -- 存量用户（含默认管理员）补普通用户角色
+-- INSERT INTO user_roles (user_id, role_id)
+-- SELECT u.id, r.id
+-- FROM users u
+-- CROSS JOIN roles r
+-- WHERE r.role_name = 'user'
+-- ON CONFLICT DO NOTHING;

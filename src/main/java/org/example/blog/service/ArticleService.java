@@ -42,15 +42,17 @@ public class ArticleService {
     private final FileMapper fileMapper;
     private final StorageService storageService;
     private final UserService userService;
+    private final PermissionService permissionService;
 
     public ArticleService(ArticleMapper articleMapper, ImageMapper imageMapper,
                           FileMapper fileMapper, StorageService storageService,
-                          UserService userService) {
+                          UserService userService, PermissionService permissionService) {
         this.articleMapper = articleMapper;
         this.imageMapper = imageMapper;
         this.fileMapper = fileMapper;
         this.storageService = storageService;
         this.userService = userService;
+        this.permissionService = permissionService;
     }
 
     // ========== 查询 ==========
@@ -59,7 +61,8 @@ public class ArticleService {
      * 文章列表（分页 + 标题搜索），返回前端约定的 page_obj 结构。
      * 可见性过滤与分页在 SQL 层完成
      * <p>
-     * 可见性：已删除文章任何人都不可见；已隐藏文章仅管理员和作者本人可见，其余文章所有人可见
+     * 可见性：已删除文章任何人都不可见；已隐藏文章仅管理员、作者本人
+     * 和拥有 article:view:hidden 权限的角色可见，其余文章所有人可见
      *
      * @param search   搜索关键词（搜索标题），可为空
      * @param page     页码，从 1 开始
@@ -68,14 +71,15 @@ public class ArticleService {
      */
     public Map<String, Object> list(String search, int page, UUID userId, boolean isAdmin) {
         String keyword = (search == null || search.isBlank()) ? null : search.trim();
+        boolean canViewHidden = permissionService.hasPermission(userId, isAdmin, PermissionService.ARTICLE_VIEW_HIDDEN);
 
-        long total = articleMapper.countVisible(keyword, userId, isAdmin);
+        long total = articleMapper.countVisible(keyword, userId, canViewHidden);
         int totalPages = (int) Math.max(1, (total + PAGE_SIZE - 1) / PAGE_SIZE);
         int currentPage = Math.clamp(page, 1, totalPages);
         int offset = (currentPage - 1) * PAGE_SIZE;
 
         List<Map<String, Object>> objectList = new ArrayList<>();
-        for (Article article : articleMapper.selectVisiblePage(keyword, userId, isAdmin, PAGE_SIZE, offset)) {
+        for (Article article : articleMapper.selectVisiblePage(keyword, userId, canViewHidden, PAGE_SIZE, offset)) {
             objectList.add(toArticleMap(article, userId, isAdmin));
         }
 
@@ -121,14 +125,19 @@ public class ArticleService {
     /**
      * 创建文章：保存被引用的图片，把正文中的 [[img_id=N]] 占位符替换为标准 Markdown 图片语法，
      * 插入文章记录并建立与图片、附件的关联
+     * <p>
+     * 权限：需拥有 article:create 权限（普通用户角色自带，被赋予「禁止发言」等负面权限时拒绝）
      *
      * @param imageIdMapping  与 imageFiles 一一对应的临时图片 ID 列表
      * @param selectedFileIds 要关联的临时文件 ID 列表（之前通过 upload-file 接口上传）
      */
     @Transactional
-    public void create(UUID authorId, String title, String content,
+    public void create(UUID authorId, boolean isAdmin, String title, String content,
                        List<MultipartFile> imageFiles, List<Integer> imageIdMapping,
                        List<String> selectedFileIds) {
+        if (!permissionService.hasPermission(authorId, isAdmin, PermissionService.ARTICLE_CREATE)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "您没有创建文章的权限");
+        }
         // 1. 保存图片，记录 临时ID → Image 的对应关系
         Map<Integer, Image> uploadedImages = saveImages(authorId, imageFiles, imageIdMapping);
 
@@ -153,14 +162,14 @@ public class ArticleService {
      * 保留的图片/文件关联到新版本，未保留的仅不关联新版本（记录和磁盘文件保留，供历史版本预览），
      * 新上传的图片/文件关联到新版本
      * <p>
-     * 权限：作者本人或管理员，且文章未删除
+     * 权限：管理员；或作者本人且拥有 article:update:own；或拥有 article:update:any（版主）；且文章未删除
      */
     @Transactional
     public void edit(UUID userId, boolean isAdmin, Integer indexId, String title, String content,
                      List<MultipartFile> imageFiles, List<Integer> imageIdMapping,
                      List<String> keepImageIds, List<String> keepFileIds,
                      List<String> selectedFileIds) {
-        Article current = requireOperableArticle(userId, isAdmin, indexId);
+        Article current = requireEditableArticle(userId, isAdmin, indexId);
 
         // 1. 保存新上传的图片（编辑时 [[img_id=N]] 只指向新图片，旧图片在正文中已是标准 Markdown）
         Map<Integer, Image> newImages = saveImages(userId, imageFiles, imageIdMapping);
@@ -325,7 +334,19 @@ public class ArticleService {
         }
     }
 
-    /** 查询文章并校验：存在、未删除、当前用户是作者或管理员，否则抛出 404/403 */
+    /** 查询文章并校验：存在、未删除、当前用户可编辑（作者且有 own 权限 / 版主 / 管理员），否则抛出 404/403 */
+    private Article requireEditableArticle(UUID userId, boolean isAdmin, Integer indexId) {
+        Article article = articleMapper.selectByIndexId(indexId);
+        if (article == null || Boolean.TRUE.equals(article.getIsDeleted())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "文章不存在");
+        }
+        if (!canEdit(article, userId, isAdmin)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "没有权限编辑此文章");
+        }
+        return article;
+    }
+
+    /** 查询文章并校验：存在、未删除、当前用户是作者或管理员（删除/隐藏操作），否则抛出 404/403 */
     private Article requireOperableArticle(UUID userId, boolean isAdmin, Integer indexId) {
         Article article = articleMapper.selectByIndexId(indexId);
         if (article == null || Boolean.TRUE.equals(article.getIsDeleted())) {
@@ -337,12 +358,33 @@ public class ArticleService {
         return article;
     }
 
-    /** 已隐藏文章是否对当前用户可见（管理员或作者本人） */
+    /** 已隐藏文章是否对当前用户可见（管理员、作者本人或拥有 article:view:hidden 权限的角色） */
     private boolean canViewHidden(Article article, UUID userId, boolean isAdmin) {
-        return isAdmin || (userId != null && userId.equals(article.getAuthorId()));
+        return isAdmin
+                || (userId != null && userId.equals(article.getAuthorId()))
+                || (userId != null
+                    && permissionService.hasPermission(userId, false, PermissionService.ARTICLE_VIEW_HIDDEN));
     }
 
-    /** 当前用户是否可操作（编辑/删除/隐藏）该文章：作者本人或管理员 */
+    /**
+     * 当前用户是否可编辑该文章：
+     * 管理员直通；作者本人需拥有 article:update:own；任何用户拥有 article:update:any（版主）即可
+     */
+    private boolean canEdit(Article article, UUID userId, boolean isAdmin) {
+        if (isAdmin) {
+            return true;
+        }
+        if (userId == null) {
+            return false;
+        }
+        if (userId.equals(article.getAuthorId())
+                && permissionService.hasPermission(userId, false, PermissionService.ARTICLE_UPDATE_OWN)) {
+            return true;
+        }
+        return permissionService.hasPermission(userId, false, PermissionService.ARTICLE_UPDATE_ANY);
+    }
+
+    /** 当前用户是否可操作（删除/隐藏）该文章：作者本人或管理员 */
     private boolean canOperate(Article article, UUID userId, boolean isAdmin) {
         if (userId == null) {
             return false;
@@ -357,7 +399,7 @@ public class ArticleService {
         map.put("title", article.getTitle());
         map.put("content", article.getContent());
         map.put("is_hidden", Boolean.TRUE.equals(article.getIsHidden()));
-        map.put("can_edit", canOperate(article, userId, isAdmin));
+        map.put("can_edit", canEdit(article, userId, isAdmin));
         map.put("can_hide", canOperate(article, userId, isAdmin));
         map.put("created_at", article.getCreatedAt() != null ? article.getCreatedAt().toString() : null);
         map.put("updated_at", article.getUpdatedAt() != null ? article.getUpdatedAt().toString() : null);

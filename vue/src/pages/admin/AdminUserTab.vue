@@ -15,6 +15,9 @@ const totalPages = ref(1)
 const search = ref('')
 const loading = ref(false)
 
+// 角色列表（编辑弹窗中分配角色用）
+const allRoles = ref<any[]>([])
+
 // 创建用户弹窗
 const showCreateModal = ref(false)
 const createForm = ref({
@@ -28,6 +31,8 @@ const editForm = ref({
   username: '', nickname: '', email: '', student_number: '', password: '',
   is_staff: false, is_admin: false, is_enabled: true, email_verified: false,
 })
+// 已勾选角色：role_name → 有效期（'' 表示永久，格式 yyyy-MM-ddTHH:mm 本地时间）
+const editRoleExpiry = ref<Record<string, string>>({})
 
 async function fetchUsers() {
   loading.value = true
@@ -99,7 +104,26 @@ function openEditModal(u: any) {
     is_enabled: u.is_enabled !== false,
     email_verified: !!u.email_verified,
   }
+  // 回显现有角色及其有效期（expires_at 形如 2030-12-31T23:59:59，截断秒）
+  editRoleExpiry.value = {}
+  for (const r of u.roles || []) {
+    editRoleExpiry.value[r.role_name] = r.expires_at ? r.expires_at.slice(0, 16) : ''
+  }
   showEditModal.value = true
+}
+
+/** 角色勾选状态切换（勾选时默认永久） */
+function toggleRole(roleName: string) {
+  if (roleName in editRoleExpiry.value) {
+    delete editRoleExpiry.value[roleName]
+  } else {
+    editRoleExpiry.value[roleName] = ''
+  }
+}
+
+/** 角色是否已过期（用于列表徽章提示） */
+function isExpired(expiresAt: string | null) {
+  return !!expiresAt && new Date(expiresAt) < new Date()
 }
 
 async function handleEdit() {
@@ -113,6 +137,11 @@ async function handleEdit() {
     is_admin: editForm.value.is_admin,
     is_enabled: editForm.value.is_enabled,
     email_verified: editForm.value.email_verified,
+    // 角色整体替换：勾选的角色各带有效期（datetime-local 值即 ISO-8601 本地时间，空为永久）
+    roles: Object.entries(editRoleExpiry.value).map(([roleName, expiry]) => ({
+      role_name: roleName,
+      expires_at: expiry || null,
+    })),
   }
   if (editForm.value.password) data.password = editForm.value.password
   const res = await adminApi.updateUser(target.id, data)
@@ -136,7 +165,13 @@ async function handleDelete(u: any) {
   }
 }
 
-onMounted(fetchUsers)
+onMounted(() => {
+  fetchUsers()
+  // 角色列表供编辑弹窗勾选（staff 也可查看）
+  adminApi.listRoles().then((res) => {
+    if (res.ok) allRoles.value = res.data.object_list
+  })
+})
 </script>
 
 <template>
@@ -174,16 +209,17 @@ onMounted(fetchUsers)
             <th class="px-4 py-3 font-medium">邮箱</th>
             <th class="px-4 py-3 font-medium">学号</th>
             <th class="px-4 py-3 font-medium">身份</th>
+            <th class="px-4 py-3 font-medium">角色</th>
             <th class="px-4 py-3 font-medium">状态</th>
             <th v-if="isAdmin" class="px-4 py-3 font-medium text-right">操作</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-zinc-100">
           <tr v-if="loading">
-            <td colspan="7" class="px-4 py-8 text-center text-zinc-400">加载中...</td>
+            <td colspan="8" class="px-4 py-8 text-center text-zinc-400">加载中...</td>
           </tr>
           <tr v-else-if="users.length === 0">
-            <td colspan="7" class="px-4 py-8 text-center text-zinc-400">暂无用户</td>
+            <td colspan="8" class="px-4 py-8 text-center text-zinc-400">暂无用户</td>
           </tr>
           <tr v-for="u in users" :key="u.id" class="hover:bg-zinc-50">
             <td class="px-4 py-3 font-medium">{{ u.username }}</td>
@@ -194,6 +230,22 @@ onMounted(fetchUsers)
               <span v-if="u.is_admin" class="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">管理员</span>
               <span v-if="u.is_staff" class="text-xs bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full">员工</span>
               <span v-if="!u.is_admin && !u.is_staff" class="text-xs bg-zinc-100 text-zinc-500 px-1.5 py-0.5 rounded-full">用户</span>
+            </td>
+            <td class="px-4 py-3">
+              <div class="flex flex-wrap gap-1 max-w-48">
+                <span v-if="!u.roles?.length" class="text-xs text-zinc-300">无</span>
+                <span
+                  v-for="r in u.roles"
+                  :key="r.role_name"
+                  :class="isExpired(r.expires_at)
+                    ? 'bg-zinc-100 text-zinc-400 line-through'
+                    : r.role_name === 'muted' ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-700'"
+                  class="text-xs px-1.5 py-0.5 rounded-full"
+                  :title="r.expires_at ? '有效期至 ' + r.expires_at.replace('T', ' ') : '永久'"
+                >
+                  {{ r.role_name }}
+                </span>
+              </div>
             </td>
             <td class="px-4 py-3">
               <span :class="u.is_enabled !== false ? 'text-emerald-600' : 'text-red-500'">
@@ -264,6 +316,31 @@ onMounted(fetchUsers)
               <input v-model="editForm.is_enabled" type="checkbox" class="rounded" :disabled="isSelf(editingUser)"> 账号启用
               <span v-if="isSelf(editingUser)" class="text-xs text-zinc-400">（不能禁用自己的账号）</span>
             </label>
+          </div>
+          <!-- 角色分配：勾选角色 + 各自有效期（保存时整体替换该用户的角色） -->
+          <div class="pt-1">
+            <p class="text-sm font-medium mb-1.5">角色（可多选，有效期留空表示永久）</p>
+            <div class="space-y-1.5 border border-zinc-200 rounded-md p-3">
+              <div v-if="!allRoles.length" class="text-xs text-zinc-400">角色加载中...</div>
+              <div v-for="r in allRoles" :key="r.id" class="flex items-center gap-2">
+                <label class="flex items-center gap-2 text-sm cursor-pointer min-w-32">
+                  <input
+                    type="checkbox"
+                    class="rounded"
+                    :checked="r.role_name in editRoleExpiry"
+                    @change="toggleRole(r.role_name)"
+                  />
+                  <span :class="r.role_name === 'muted' ? 'text-red-600' : ''">{{ r.role_name }}</span>
+                  <span v-if="r.is_system" class="text-xs text-zinc-300">系统</span>
+                </label>
+                <input
+                  v-if="r.role_name in editRoleExpiry"
+                  v-model="editRoleExpiry[r.role_name]"
+                  type="datetime-local"
+                  class="flex-1 border border-zinc-300 rounded-md px-2 py-1 text-xs focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
           </div>
           <div class="flex justify-end gap-2 pt-2">
             <button type="button" @click="showEditModal = false" class="px-4 py-2 text-sm rounded-md bg-zinc-100 hover:bg-zinc-200">取消</button>

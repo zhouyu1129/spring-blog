@@ -13,7 +13,7 @@
     </select>
 
     <!-- 分页查询某文章的可见评论（过滤与分页在 SQL 层完成）：
-         已删除评论不返回；已隐藏评论仅管理员或评论作者本人可见；
+         已删除评论不返回；已隐藏评论仅评论作者本人、管理员或拥有 comment:view:hidden 权限的角色可见；
          同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
     <select id="selectVisiblePage" resultType="org.example.blog.dao.Comment">
         SELECT t.id, t.index_id, t.content, t.author_id, t.article_index_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
@@ -24,7 +24,7 @@
             ORDER BY index_id, updated_at DESC
         ) t
         WHERE t.is_deleted = FALSE
-          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{isAdmin} = TRUE)
+          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{canViewHidden} = TRUE)
         ORDER BY t.created_at DESC
         LIMIT #{limit} OFFSET #{offset}
     </select>
@@ -39,11 +39,11 @@
             ORDER BY index_id, updated_at DESC
         ) t
         WHERE t.is_deleted = FALSE
-          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{isAdmin} = TRUE)
+          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{canViewHidden} = TRUE)
     </select>
 
     <!-- 分页查询某作者的可见评论（用户主页使用，过滤与分页在 SQL 层完成）：
-         已删除评论不返回；已隐藏评论仅管理员或评论作者本人可见；
+         已删除评论不返回；已隐藏评论仅评论作者本人、管理员或拥有 comment:view:hidden 权限的角色可见；
          JOIN 文章最新版本，所属文章不存在、已删除或已隐藏的评论不返回；
          结果携带所属文章标题（article_title 映射到 articleTitle） -->
     <select id="selectVisibleByAuthorPage" resultType="org.example.blog.dao.Comment">
@@ -61,7 +61,7 @@
             ORDER BY index_id, updated_at DESC
         ) a ON a.index_id = t.article_index_id
         WHERE t.is_deleted = FALSE
-          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{isAdmin} = TRUE)
+          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{canViewHidden} = TRUE)
           AND a.is_deleted = FALSE
           AND a.is_hidden = FALSE
         ORDER BY t.created_at DESC
@@ -83,7 +83,7 @@
             ORDER BY index_id, updated_at DESC
         ) a ON a.index_id = t.article_index_id
         WHERE t.is_deleted = FALSE
-          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{isAdmin} = TRUE)
+          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{canViewHidden} = TRUE)
           AND a.is_deleted = FALSE
           AND a.is_hidden = FALSE
     </select>

@@ -20,7 +20,8 @@
     </select>
 
     <!-- 分页查询全站可见文章（过滤与分页在 SQL 层完成）：
-         已删除文章不返回；已隐藏文章仅管理员或作者本人可见；keyword 非空时按标题 ILIKE 模糊匹配；
+         已删除文章不返回；已隐藏文章仅作者本人、管理员或拥有 article:view:hidden 权限的角色可见；
+         keyword 非空时按标题 ILIKE 模糊匹配；
          同一 index_id 只保留 updated_at 最新的版本，按 created_at 倒序 -->
     <select id="selectVisiblePage" resultType="org.example.blog.dao.Article">
         SELECT t.id, t.index_id, t.title, t.content, t.author_id, t.is_deleted, t.is_hidden, t.created_at, t.updated_at
@@ -35,7 +36,7 @@
             ORDER BY index_id, updated_at DESC
         ) t
         WHERE t.is_deleted = FALSE
-          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{isAdmin} = TRUE)
+          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{canViewHidden} = TRUE)
         ORDER BY t.created_at DESC
         LIMIT #{limit} OFFSET #{offset}
     </select>
@@ -54,7 +55,7 @@
             ORDER BY index_id, updated_at DESC
         ) t
         WHERE t.is_deleted = FALSE
-          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{isAdmin} = TRUE)
+          AND (t.is_hidden = FALSE OR t.author_id = #{viewerId} OR #{canViewHidden} = TRUE)
     </select>
 
     <!-- 分页查询作者主页的可见文章（过滤与分页在 SQL 层完成）：

@@ -1194,14 +1194,16 @@
         "is_enabled": true,
         "created_at": "2026-08-23T10:00:00",
         "last_logged_at": null,
-        "roles": []
+        "roles": [
+          { "role_name": "user", "description": "普通用户（注册默认获得）", "expires_at": null }
+        ]
       }
     ]
   }
 }
 ```
 
-> 用户结构不含 `password`。
+> 用户结构不含 `password`。`roles` 为该用户当前拥有的角色列表（含已过期分配），`expires_at` 为该角色分配的有效期（ISO-8601，`null` 表示永久）。
 
 ### 4.2 用户详情
 
@@ -1254,13 +1256,30 @@
 | **路径** | `/api/admin/users/{id}`                         |
 | **认证** | 需要登录（仅 `is_admin`）                       |
 
-**请求体（JSON，部分更新）：** 同 4.3 的字段均可选，仅提交需要修改的字段（`username` 可修改，需保持唯一）。
+**请求体（JSON，部分更新）：** 同 4.3 的字段均可选，仅提交需要修改的字段（`username` 可修改，需保持唯一）。另支持 `roles` 字段（角色整体替换）：
+
+| 字段    | 类型  | 说明                                                                 |
+| ------- | ----- | -------------------------------------------------------------------- |
+| roles   | Array | 可选，整体替换该用户的角色。每项 `{ "role_name" \| "role_id", "expires_at"? }`，`expires_at` 缺省或 `null` 表示永久（ISO-8601 格式，如 `2030-12-31T23:59:59`） |
+
+示例：
+
+```json
+{
+  "roles": [
+    { "role_name": "user" },
+    { "role_name": "muted", "expires_at": "2030-12-31T23:59:59" }
+  ]
+}
+```
 
 **约束：**
 
 - 不能取消自己的 `is_admin`（防止锁死）→ `400`
 - 不能禁用自己的 `is_enabled` → `400`
 - 邮箱/学号/用户名与其他用户重复 → `400`
+- `roles` 中的角色不存在或 `expires_at` 格式不合法 → `400`
+- 请求体只含 `roles` 时仅更新角色，不改动 users 表其他字段
 
 **成功响应（200）：** `{ "user": { ...更新后结构 } }`。
 
@@ -1411,6 +1430,128 @@
 
 **成功响应（200）：** `{ "comment": { ...同 4.9 条目结构 } }`。
 
+### 4.11 角色列表
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `GET`                                           |
+| **路径** | `/api/admin/roles`                              |
+| **认证** | 需要登录（`is_staff` 或 `is_admin`）            |
+
+**成功响应（200）：**
+
+```json
+{
+  "object_list": [
+    {
+      "id": 1,
+      "role_name": "user",
+      "description": "普通用户（注册默认获得）",
+      "is_system": true,
+      "user_count": 42,
+      "permissions": ["article:create", "article:update:own", "comment:create", "comment:update:own"]
+    },
+    {
+      "id": 5,
+      "role_name": "muted",
+      "description": "禁止发言（无法发表文章和评论）",
+      "is_system": true,
+      "user_count": 0,
+      "permissions": ["!article:create", "!comment:create"]
+    }
+  ]
+}
+```
+
+> `user_count` 为拥有该角色的用户数（含已过期分配）。`is_system` 为系统预置角色（不可删除、不可改名）。`permissions` 中的负面权限以 `!` 前缀表示禁止。
+
+### 4.12 权限字典
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `GET`                                           |
+| **路径** | `/api/admin/permissions`                        |
+| **认证** | 需要登录（`is_staff` 或 `is_admin`）            |
+
+**成功响应（200）：**
+
+```json
+{
+  "object_list": [
+    { "id": 1, "perm_name": "article:create", "description": "创建文章" },
+    { "id": 9, "perm_name": "!article:create", "description": "禁止创建文章（负面权限）" }
+  ]
+}
+```
+
+> 权限为系统预置的固定集合（8 个正面权限 + 2 个负面权限），不支持增删，供创建/编辑角色时勾选。
+
+### 4.13 创建角色
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `POST`                                          |
+| **路径** | `/api/admin/roles`                              |
+| **认证** | 需要登录（仅 `is_admin`）                       |
+
+**请求体（JSON）：**
+
+| 字段        | 类型     | 必填 | 说明                                              |
+| ----------- | -------- | ---- | ------------------------------------------------- |
+| role_name   | String   | 是   | 2-64 位，小写字母开头，仅含小写字母/数字/下划线/连字符，唯一 |
+| description | String   | 否   | 角色描述                                          |
+| permissions | String[] | 否   | 权限名数组，必须来自权限字典，缺省为空数组         |
+
+**成功响应（200）：** `{ "role": { ...同 4.11 条目结构 } }`；角色名不合法/重复或权限不存在 → `400`。
+
+### 4.14 编辑角色
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `PATCH`                                         |
+| **路径** | `/api/admin/roles/{id}`                         |
+| **认证** | 需要登录（仅 `is_admin`）                       |
+
+**路径参数：**
+
+| 参数 | 类型 | 说明     |
+| ---- | ---- | -------- |
+| id   | int  | 角色 ID  |
+
+**请求体（JSON，部分更新）：**
+
+| 字段        | 类型     | 说明                                       |
+| ----------- | -------- | ------------------------------------------ |
+| role_name   | String   | 新角色名（系统预置角色不可改名 → `400`）     |
+| description | String   | 新描述                                     |
+| permissions | String[] | 整体替换该角色的权限（必须来自权限字典）     |
+
+> 三个字段均可选，至少提供一个；角色不存在返回 `404`。
+
+**成功响应（200）：** `{ "role": { ...同 4.11 条目结构 } }`。
+
+### 4.15 删除角色
+
+| 项目           | 内容                                            |
+| -------------- | ----------------------------------------------- |
+| **方法** | `DELETE`                                        |
+| **路径** | `/api/admin/roles/{id}`                         |
+| **认证** | 需要登录（仅 `is_admin`）                       |
+
+**约束：**
+
+- 系统预置角色（`is_system=true`）不可删除 → `400`
+- 物理删除角色，其用户分配与权限关联由外键级联删除（用户立即失去该角色带来的权限）
+- 角色不存在返回 `404`
+
+**成功响应（200）：**
+
+```json
+{ "status": "success", "message": "角色已删除" }
+```
+
+> **权限判定规则**（全站通用）：访问资源时必须「拥有对应的正面权限 且 没有对应的负面权限（`!` 前缀）」，**或** 当前用户是管理员（`is_admin=true` 直通一切权限）。角色分配带 `expires_at` 有效期的，过期后该角色不再参与权限计算。
+
 ---
 
 ## 五、数据模型
@@ -1485,6 +1626,30 @@
 
 > 临时文件在文章创建/编辑时关联到文章，未关联的可定期清理
 
+### 5.6 Role（角色）
+
+| 字段        | 类型     | 说明                                                    |
+| ----------- | -------- | ------------------------------------------------------- |
+| id          | Integer  | 主键                                                    |
+| role_name   | String   | 角色名，2-64 位，小写字母开头，唯一                      |
+| description | String   | 角色描述，可选                                          |
+| is_system   | Boolean  | 是否系统预置角色（不可删除、不可改名），默认 false       |
+| expires_at  | DateTime | 用户角色分配的有效期（`user_roles.expires_at`，null 为永久） |
+
+> 系统预置角色：`user`（普通用户，注册默认获得）、`observer`（观测者）、`moderator`（版主）、`muted`（禁止发言）。
+> 用户与角色为多对多（`user_roles`），每条分配可独立设置有效期，过期后该角色不参与权限计算。
+
+### 5.7 Permission（权限）
+
+| 字段        | 类型    | 说明                                                    |
+| ----------- | ------- | ------------------------------------------------------- |
+| id          | Integer | 主键                                                    |
+| perm_name   | String  | 权限名，唯一；`!` 前缀表示负面权限（禁止）               |
+| description | String  | 权限描述                                                |
+
+> 权限字典（固定集合）：`article:create`、`article:update:own`、`article:update:any`、`article:view:hidden`、`comment:create`、`comment:update:own`、`comment:update:any`、`comment:view:hidden`，以及负面权限 `!article:create`、`!comment:create`。
+> 判定规则：`(拥有正面权限 && 无对应负面权限) || is_admin`。
+
 ---
 
 ## 六、接口总览
@@ -1546,6 +1711,11 @@
 | 36 | PATCH  | `/api/admin/articles/{indexId}`   | 编辑文章（内容/隐藏/删除） | 仅 admin                 |
 | 37 | GET    | `/api/admin/comments`             | 评论列表（含已删/已隐藏）  | staff / admin            |
 | 38 | PATCH  | `/api/admin/comments/{indexId}`   | 编辑评论（内容/隐藏/删除） | 仅 admin                 |
+| 39 | GET    | `/api/admin/roles`                | 角色列表（含权限/用户数）  | staff / admin            |
+| 40 | GET    | `/api/admin/permissions`          | 权限字典                   | staff / admin            |
+| 41 | POST   | `/api/admin/roles`                | 创建角色                   | 仅 admin                 |
+| 42 | PATCH  | `/api/admin/roles/{id}`           | 编辑角色（名称/描述/权限） | 仅 admin                 |
+| 43 | DELETE | `/api/admin/roles/{id}`           | 删除角色（系统角色除外）   | 仅 admin                 |
 
 ### 系统接口
 

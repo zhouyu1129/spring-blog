@@ -33,11 +33,20 @@ function slugify(text: string, used: Map<string, number>): string {
 }
 
 /**
+ * 允许的 URI 协议：DOMPurify 默认白名单（http/https/ftp/mailto/tel 等）基础上加 blob:。
+ * 创建/编辑文章时图片预览用 URL.createObjectURL 生成 blob: URL，
+ * 默认白名单会剥离该 src 导致预览只剩 alt 文件名。
+ */
+const ALLOWED_URI_REGEXP = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|blob):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+
+/**
  * 渲染 Markdown 为 HTML，并给标题（h1-h6）添加锚点 id，同时收集标题生成目录。
  * 渲染结果经过 DOMPurify 净化，移除 script/事件属性/javascript: 链接等 XSS 载荷
  */
 export function renderMarkdownWithToc(content: string, maxLevel = 3): { html: string; toc: TocItem[] } {
-  const html = DOMPurify.sanitize(marked.parse(content || '') as string)
+  const html = DOMPurify.sanitize(marked.parse(content || '') as string, {
+    ALLOWED_URI_REGEXP,
+  })
   const toc: TocItem[] = []
   const used = new Map<string, number>()
   const withIds = html.replace(/<h([1-6])>([\s\S]*?)<\/h\1>/g, (_match, levelStr: string, innerHtml: string) => {

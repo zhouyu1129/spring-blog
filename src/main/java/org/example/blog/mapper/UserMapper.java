@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Param;
 import org.example.blog.dao.Role;
 import org.example.blog.dao.User;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -49,9 +50,19 @@ public interface UserMapper {
     /** 查询用户的角色列表 */
     List<Role> selectRolesByUserId(UUID userId);
 
-    /** 给用户分配角色 */
-    int insertUserRole(UUID userId, Integer roleId);
+    /** 给用户分配角色（expiresAt 为有效期，null 表示永久） */
+    int insertUserRole(@Param("userId") UUID userId, @Param("roleId") Integer roleId,
+                       @Param("expiresAt") LocalDateTime expiresAt);
 
     /** 移除用户的某个角色 */
     int deleteUserRole(UUID userId, Integer roleId);
+
+    /** 移除用户的全部角色（重新分配前清空） */
+    int deleteAllUserRoles(@Param("userId") UUID userId);
+
+    /**
+     * 查询用户当前「有效」的全部权限名（含负面权限）：
+     * 只统计 expires_at 为空（永久）或晚于当前时间的角色，过期角色的权限不参与计算
+     */
+    List<String> selectEffectivePermissions(@Param("userId") UUID userId);
 }
