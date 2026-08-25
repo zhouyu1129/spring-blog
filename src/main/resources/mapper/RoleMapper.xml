@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.blog.mapper.RoleMapper">
+
+    <!-- Role 结果映射 -->
+    <resultMap id="RoleResultMap" type="org.example.blog.dao.Role">
+        <id property="id" column="id"/>
+        <result property="roleName" column="role_name"/>
+        <result property="description" column="description"/>
+        <result property="isSystem" column="is_system"/>
+        <collection property="permissions" ofType="org.example.blog.dao.Permission"
+                    select="selectPermissionsByRoleId" column="id"/>
+    </resultMap>
+
+    <!-- 根据 ID 查询角色（resultMap 联查权限列表） -->
+    <select id="selectById" resultMap="RoleResultMap">
+        SELECT id, role_name, description, is_system
+        FROM roles WHERE id = #{id}
+    </select>
+
+    <!-- 根据角色名查询角色 -->
+    <select id="selectByRoleName" resultType="org.example.blog.dao.Role">
+        SELECT id, role_name AS roleName, description, is_system AS isSystem
+        FROM roles WHERE role_name = #{roleName}
+    </select>
+
+    <!-- 查询所有角色（含系统标记与用户数，用户数含已过期分配） -->
+    <select id="selectAll" resultType="org.example.blog.dao.Role">
+        SELECT r.id, r.role_name AS roleName, r.description, r.is_system AS isSystem,
+               COUNT(ur.user_id) AS userCount
+        FROM roles r
+        LEFT JOIN user_roles ur ON ur.role_id = r.id
+        GROUP BY r.id, r.role_name, r.description, r.is_system
+        ORDER BY r.id
+    </select>
+
+    <!-- 插入角色 -->
+    <insert id="insert" parameterType="org.example.blog.dao.Role" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO roles (role_name, description, is_system) VALUES (#{roleName}, #{description}, #{isSystem})
+    </insert>
+
+    <!-- 更新角色 -->
+    <update id="update" parameterType="org.example.blog.dao.Role">
+        UPDATE roles
+        <set>
+            <if test="roleName != null">role_name = #{roleName},</if>
+            <if test="description != null">description = #{description},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <!-- 删除角色 -->
+    <delete id="deleteById">
+        DELETE FROM roles WHERE id = #{id}
+    </delete>
+
+    <!-- 查询角色的权限列表 -->
+    <select id="selectPermissionsByRoleId" resultType="org.example.blog.dao.Permission">
+        SELECT p.id, p.perm_name AS permName, p.description
+        FROM permissions p
+        INNER JOIN role_permissions rp ON p.id = rp.permission_id
+        WHERE rp.role_id = #{roleId}
+    </select>
+
+    <!-- 给角色分配权限 -->
+    <insert id="insertRolePermission">
+        INSERT INTO role_permissions (role_id, permission_id) VALUES (#{roleId}, #{permissionId})
+        ON CONFLICT DO NOTHING
+    </insert>
+
+    <!-- 移除角色的某个权限 -->
+    <delete id="deleteRolePermission">
+        DELETE FROM role_permissions WHERE role_id = #{roleId} AND permission_id = #{permissionId}
+    </delete>
+
+    <!-- 移除角色的全部权限（重新分配前清空） -->
+    <delete id="deleteAllRolePermissions">
+        DELETE FROM role_permissions WHERE role_id = #{roleId}
+    </delete>
+
+</mapper>

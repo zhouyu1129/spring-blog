@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.blog.mapper.UserMapper">
+
+    <!-- User 结果映射 -->
+    <resultMap id="UserResultMap" type="org.example.blog.dao.User">
+        <id property="id" column="id" jdbcType="OTHER"/>
+        <result property="username" column="username"/>
+        <result property="password" column="password"/>
+        <result property="nickname" column="nickname"/>
+        <result property="realName" column="real_name"/>
+        <result property="gender" column="gender"/>
+        <result property="email" column="email"/>
+        <result property="emailVerified" column="email_verified"/>
+        <result property="mobile" column="mobile"/>
+        <result property="studentNumber" column="student_number"/>
+        <result property="isStaff" column="is_staff"/>
+        <result property="isAdmin" column="is_admin"/>
+        <result property="isEnabled" column="is_enabled"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="lastLoggedAt" column="last_logged_at"/>
+        <collection property="roles" ofType="org.example.blog.dao.Role"
+                    select="selectRolesByUserId" column="id"/>
+    </resultMap>
+
+    <!-- 基础列 -->
+    <sql id="Base_Column_List">
+        id, username, password, nickname, real_name, gender, email, email_verified,
+        mobile, student_number, is_staff, is_admin, is_enabled, created_at, last_logged_at
+    </sql>
+
+    <!-- 根据用户名查询用户 -->
+    <select id="selectByUsername" resultMap="UserResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM users
+        WHERE username = #{username}
+    </select>
+
+    <!-- 根据 ID 查询用户 -->
+    <select id="selectById" resultMap="UserResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM users
+        WHERE id = #{id, jdbcType=OTHER}
+    </select>
+
+    <!--根据 email 查询用户-->
+    <select id="selectByEmail" resultMap="UserResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM users
+        WHERE email = #{email}
+    </select>
+
+    <!--根据 student_number 查询用户-->
+    <select id="selectByStudentNumber" resultMap="UserResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM users
+        WHERE student_number = #{studentNumber}
+    </select>
+
+    <!-- 查询所有用户 -->
+    <select id="selectAll" resultMap="UserResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM users
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 管理员后端：分页查询用户，按用户名/昵称/邮箱/学号模糊匹配，按 created_at 降序 -->
+    <select id="selectPage" resultMap="UserResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM users
+        <where>
+            <if test="keyword != null and keyword != ''">
+                (username ILIKE CONCAT('%', #{keyword}, '%')
+                OR nickname ILIKE CONCAT('%', #{keyword}, '%')
+                OR email ILIKE CONCAT('%', #{keyword}, '%')
+                OR student_number ILIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY created_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 管理员后端：统计用户总数（过滤条件与 selectPage 一致） -->
+    <select id="countByKeyword" resultType="long">
+        SELECT COUNT(*)
+        FROM users
+        <where>
+            <if test="keyword != null and keyword != ''">
+                (username ILIKE CONCAT('%', #{keyword}, '%')
+                OR nickname ILIKE CONCAT('%', #{keyword}, '%')
+                OR email ILIKE CONCAT('%', #{keyword}, '%')
+                OR student_number ILIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+    </select>
+
+    <!-- 插入用户 -->
+    <insert id="insert" parameterType="org.example.blog.dao.User">
+        INSERT INTO users (id, username, password, nickname, real_name, gender, email,
+                <if test="emailVerified != null">email_verified, </if>mobile, student_number, is_staff, is_admin,
+                is_enabled, created_at, last_logged_at)
+        VALUES (#{id, jdbcType=OTHER}, #{username}, #{password}, #{nickname}, #{realName}, #{gender}, #{email},
+                <if test="emailVerified != null">#{emailVerified}, </if>#{mobile}, #{studentNumber}, #{isStaff},
+                #{isAdmin}, #{isEnabled}, #{createdAt}, #{lastLoggedAt})
+    </insert>
+
+    <!-- 更新用户 -->
+    <update id="update" parameterType="org.example.blog.dao.User">
+        UPDATE users
+        <set>
+            <if test="username != null">username = #{username},</if>
+            <if test="password != null">password = #{password},</if>
+            <if test="nickname != null">nickname = #{nickname},</if>
+            <if test="realName != null">real_name = #{realName},</if>
+            <if test="gender != null">gender = #{gender},</if>
+            <if test="email != null">email = #{email},</if>
+            <if test="emailVerified != null">email_verified = #{emailVerified},</if>
+            <if test="mobile != null">mobile = #{mobile},</if>
+            <if test="studentNumber != null">student_number = #{studentNumber},</if>
+            <if test="isStaff != null">is_staff = #{isStaff},</if>
+            <if test="isAdmin != null">is_admin = #{isAdmin},</if>
+            <if test="isEnabled != null">is_enabled = #{isEnabled},</if>
+            <if test="lastLoggedAt != null">last_logged_at = #{lastLoggedAt},</if>
+        </set>
+        WHERE id = #{id, jdbcType=OTHER}
+    </update>
+
+    <!-- 删除用户 -->
+    <delete id="deleteById">
+        DELETE FROM users WHERE id = #{id, jdbcType=OTHER}
+    </delete>
+
+    <!-- 查询用户的角色列表（含该角色对该用户的有效期） -->
+    <select id="selectRolesByUserId" resultType="org.example.blog.dao.Role">
+        SELECT r.id, r.role_name AS roleName, r.description, r.is_system AS isSystem,
+               ur.expires_at AS expiresAt
+        FROM roles r
+        INNER JOIN user_roles ur ON r.id = ur.role_id
+        WHERE ur.user_id = #{userId, jdbcType=OTHER}
+    </select>
+
+    <!-- 给用户分配角色（expiresAt 为有效期，null 表示永久） -->
+    <insert id="insertUserRole">
+        INSERT INTO user_roles (user_id, role_id, expires_at)
+        VALUES (#{userId, jdbcType=OTHER}, #{roleId}, #{expiresAt})
+        ON CONFLICT (user_id, role_id) DO UPDATE SET expires_at = EXCLUDED.expires_at
+    </insert>
+
+    <!-- 移除用户的某个角色 -->
+    <delete id="deleteUserRole">
+        DELETE FROM user_roles WHERE user_id = #{userId, jdbcType=OTHER} AND role_id = #{roleId}
+    </delete>
+
+    <!-- 移除用户的全部角色（重新分配前清空） -->
+    <delete id="deleteAllUserRoles">
+        DELETE FROM user_roles WHERE user_id = #{userId, jdbcType=OTHER}
+    </delete>
+
+    <!-- 查询用户当前有效角色的全部权限名（含负面权限）；过期角色的权限不参与计算 -->
+    <select id="selectEffectivePermissions" resultType="string">
+        SELECT DISTINCT p.perm_name
+        FROM permissions p
+        INNER JOIN role_permissions rp ON rp.permission_id = p.id
+        INNER JOIN user_roles ur ON ur.role_id = rp.role_id
+        WHERE ur.user_id = #{userId, jdbcType=OTHER}
+          AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+    </select>
+
+</mapper>
